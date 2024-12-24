@@ -1,5 +1,4 @@
-# Deploy OpenVPN to server
----
+# GitHub Actions workflow to deploy OpenVPN server
 name: Deploy OpenVPN
 
 on:
@@ -12,6 +11,7 @@ permissions:
 
 jobs:
   deploy:
+    name: Deploy to Server
     runs-on: ubuntu-latest
     environment: production
     
@@ -80,6 +80,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"
 
   test:
+    name: Test Connection
     needs: deploy
     runs-on: ubuntu-latest
     environment: production
