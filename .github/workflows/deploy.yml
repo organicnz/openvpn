@@ -1,11 +1,14 @@
+# Deploy OpenVPN to server
 ---
 name: Deploy OpenVPN
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   check-secrets:
@@ -37,6 +40,11 @@ jobs:
           if [ ${#missing_secrets[@]} -ne 0 ]; then
             echo "Error: The following required secrets are missing:"
             printf '%s\n' "${missing_secrets[@]}"
+            echo "Please add these secrets in your GitHub repository:"
+            echo "1. Go to your repository settings"
+            echo "2. Click on 'Secrets and variables' → 'Actions'"
+            echo "3. Click on 'New repository secret'"
+            echo "4. Add each missing secret with its value"
             exit 1
           fi
           
