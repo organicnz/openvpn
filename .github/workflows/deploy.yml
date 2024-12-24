@@ -24,6 +24,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Verify required files
+        run: |
+          if [ ! -f docker-compose.yml ]; then
+            echo "Error: docker-compose.yml not found in repository"
+            exit 1
+          fi
+
       - name: Setup SSH and deploy
         env:
           AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
@@ -80,86 +87,27 @@ jobs:
             error "Failed to create remote directory"
           fi
           
-          # Create docker-compose.yml
-          log "Creating docker-compose.yml..."
-          cat > docker-compose.yml << 'EOL'
-          version: '3.8'
-          
-          services:
-            openvpn:
-              image: kylemanna/openvpn:2.4
-              container_name: openvpn
-              cap_add:
-                - NET_ADMIN
-              ports:
-                - "1194:1194/udp"
-              restart: unless-stopped
-              volumes:
-                - ./openvpn_data:/etc/openvpn
-          EOL
-          
-          # Create deployment script
-          log "Creating deployment script..."
-          cat > deploy_remote.sh << 'EOL'
-          #!/bin/bash
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          log "Starting deployment..."
-          cd /opt/openvpn || error "Failed to change directory"
-          
-          # Clean up old files except volumes
-          log "Cleaning up old files..."
-          sudo find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' ! -name 'docker-compose.yml' -exec rm -rf {} + || error "Failed to clean up old files"
-          
-          # Create .env file
-          log "Creating .env file..."
-          cat > .env << EOF || error "Failed to create .env file"
-          DOCKER_USERNAME=$DOCKER_USERNAME
-          DOCKER_PASSWORD=$DOCKER_PASSWORD
-          DOCKER_TOKEN=$DOCKER_TOKEN
-          GH_TOKEN=$GH_TOKEN
-          EOF
-          
-          # Verify docker-compose.yml exists
-          if [ ! -f docker-compose.yml ]; then
-            error "docker-compose.yml not found"
+          # Copy repository files to server
+          log "Copying repository files to server..."
+          if ! scp -o StrictHostKeyChecking=no -r ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
+            error "Failed to copy repository files"
           fi
           
-          # Run Docker commands
-          log "Starting Docker services..."
-          if ! sudo -E docker-compose pull; then
-            error "Failed to pull Docker images"
-          fi
-          
-          if ! sudo -E docker-compose up -d; then
-            error "Failed to start Docker services"
-          fi
-          
-          log "Deployment completed successfully"
-          EOL
-          
-          # Copy files to server
-          log "Copying files to server..."
-          if ! scp -o StrictHostKeyChecking=no docker-compose.yml "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/docker-compose.yml"; then
-            error "Failed to copy docker-compose.yml"
-          fi
-          if ! scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/deploy_remote.sh"; then
-            error "Failed to copy deployment script"
+          # Create .env file on server
+          log "Creating .env file on server..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && cat > .env << EOF
+          DOCKER_USERNAME='${DOCKER_USERNAME}'
+          DOCKER_PASSWORD='${DOCKER_PASSWORD}'
+          DOCKER_TOKEN='${DOCKER_TOKEN}'
+          GH_TOKEN='${GH_TOKEN}'
+          EOF"; then
+            error "Failed to create .env file"
           fi
           
           # Execute deployment
-          log "Starting remote deployment..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x deploy_remote.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"; then
-            error "Remote deployment failed"
+          log "Starting deployment..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && sudo -E docker-compose pull && sudo -E docker-compose up -d"; then
+            error "Deployment failed"
           fi
           
           log "Deployment completed successfully"
