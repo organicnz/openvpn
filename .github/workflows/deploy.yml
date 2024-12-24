@@ -104,9 +104,21 @@ jobs:
             error "Failed to create .env file"
           fi
           
+          # Clean up Docker resources
+          log "Cleaning up Docker resources..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            sudo docker-compose down --remove-orphans && \
+            sudo docker network prune -f"; then
+            error "Failed to clean up Docker resources"
+          fi
+          
           # Execute deployment
           log "Starting deployment..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && sudo -E docker-compose pull && sudo -E docker-compose up -d"; then
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            sudo chmod +x *.sh && \
+            sudo -E docker-compose pull && \
+            sudo -E docker network prune -f && \
+            sudo -E docker-compose up -d"; then
             error "Deployment failed"
           fi
           
