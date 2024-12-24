@@ -19,11 +19,15 @@ jobs:
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.AZURE_SSH_KEY }}
-          known_hosts: ${{ secrets.SERVER_HOST }}
+          name: id_rsa
+          known_hosts: unnecessary
           if_key_exists: replace
 
       - name: Add known hosts
-        run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Create deployment script
         run: |
@@ -117,11 +121,15 @@ jobs:
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.AZURE_SSH_KEY }}
-          known_hosts: ${{ secrets.SERVER_HOST }}
+          name: id_rsa
+          known_hosts: unnecessary
           if_key_exists: replace
 
       - name: Add known hosts
-        run: ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Test OpenVPN connection
         run: |
