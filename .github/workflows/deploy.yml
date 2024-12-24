@@ -18,6 +18,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Create docker-compose.yml
+        run: |
+          cat > docker-compose.yml << 'EOL'
+          version: '3.8'
+          
+          services:
+            openvpn:
+              image: kylemanna/openvpn:2.4
+              container_name: openvpn
+              cap_add:
+                - NET_ADMIN
+              ports:
+                - "1194:1194/udp"
+              restart: unless-stopped
+              volumes:
+                - ./openvpn_data:/etc/openvpn
+          EOL
+
       - name: Setup SSH and deploy
         env:
           AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
@@ -105,11 +123,6 @@ jobs:
           GH_TOKEN=$GH_TOKEN
           EOF
           
-          # Verify docker-compose.yml exists
-          if [ ! -f docker-compose.yml ]; then
-            error "docker-compose.yml not found"
-          fi
-          
           # Run Docker commands
           log "Starting Docker services..."
           if ! sudo docker-compose pull; then
@@ -122,12 +135,6 @@ jobs:
           
           log "Deployment completed successfully"
           EOL
-          
-          # Verify docker-compose.yml exists locally
-          log "Verifying docker-compose.yml..."
-          if [ ! -f docker-compose.yml ]; then
-            error "docker-compose.yml not found in workspace"
-          fi
           
           # Copy files to server
           log "Copying files to server..."
