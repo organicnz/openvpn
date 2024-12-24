@@ -1,0 +1,27 @@
+# Client-specific configuration
+ifconfig-push 10.8.0.%i 255.255.255.0
+iroute 10.8.0.0 255.255.255.0
+
+# Port forwarding configuration
+push "route 10.8.0.0 255.255.255.0"
+push "route-gateway 10.8.0.1"
+
+# Port forwarding rules
+push "port-share localhost 3005 3005"
+push "port-share localhost 3006 3006"
+push "port-share localhost 3007 3007"
+push "port-share localhost 3008 3008"
+push "port-share localhost 3009 3009"
+
+# Client-to-client communication
+push "client-to-client"
+
+# NAT traversal
+push "explicit-exit-notify 1"
+
+# Keep alive settings
+push "keepalive 10 60"
+
+# DNS settings
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4" 

@@ -1,0 +1,17 @@
+# Environment variables
+.env
+
+# Data directories
+mongodb_data/
+pritunl_data/
+pritunl_log/
+
+# History and logs
+.history/
+*.log
+*.pid
+*.sock
+
+# OS files
+.DS_Store
+Thumbs.db
