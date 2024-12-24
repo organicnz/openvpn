@@ -15,19 +15,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install SSH key
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.AZURE_SSH_KEY }}
-          name: id_rsa
-          known_hosts: unnecessary
-          if_key_exists: replace
-
-      - name: Add known hosts
+      - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          touch ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          ssh-keyscan -t rsa ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
       - name: Create deployment script
         run: |
@@ -117,19 +112,14 @@ jobs:
     environment: production
     
     steps:
-      - name: Install SSH key
-        uses: shimataro/ssh-key-action@v2
-        with:
-          key: ${{ secrets.AZURE_SSH_KEY }}
-          name: id_rsa
-          known_hosts: unnecessary
-          if_key_exists: replace
-
-      - name: Add known hosts
+      - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          touch ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          ssh-keyscan -t rsa ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
       - name: Test OpenVPN connection
         run: |
