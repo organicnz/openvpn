@@ -11,47 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  check-secrets:
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - name: Check required secrets
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          missing_secrets=()
-          
-          # Check each required secret
-          [ -z "$SERVER_HOST" ] && missing_secrets+=("SERVER_HOST (Server hostname or IP address)")
-          [ -z "$SERVER_USER" ] && missing_secrets+=("SERVER_USER (Server SSH username)")
-          [ -z "$AZURE_SSH_KEY" ] && missing_secrets+=("AZURE_SSH_KEY (SSH private key)")
-          [ -z "$DOCKER_USERNAME" ] && missing_secrets+=("DOCKER_USERNAME (Docker Hub username)")
-          [ -z "$DOCKER_PASSWORD" ] && missing_secrets+=("DOCKER_PASSWORD (Docker Hub password)")
-          [ -z "$DOCKER_TOKEN" ] && missing_secrets+=("DOCKER_TOKEN (Docker Hub token)")
-          [ -z "$GH_TOKEN" ] && missing_secrets+=("GH_TOKEN (GitHub token)")
-          
-          # If any secrets are missing, fail the workflow
-          if [ ${#missing_secrets[@]} -ne 0 ]; then
-            echo "Error: The following required secrets are missing:"
-            printf '%s\n' "${missing_secrets[@]}"
-            echo "Please add these secrets in your GitHub repository:"
-            echo "1. Go to your repository settings"
-            echo "2. Click on 'Secrets and variables' → 'Actions'"
-            echo "3. Click on 'New repository secret'"
-            echo "4. Add each missing secret with its value"
-            exit 1
-          fi
-          
-          echo "All required secrets are set"
-
   deploy:
-    needs: check-secrets
     runs-on: ubuntu-latest
     environment: production
     
@@ -76,20 +36,15 @@ jobs:
           echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
           
           # Setup SSH
-          sudo rm -rf ~/.ssh
-          sudo mkdir -p ~/.ssh
-          echo "${AZURE_SSH_KEY}" | sudo tee ~/.ssh/id_rsa > /dev/null
-          sudo chmod 600 ~/.ssh/id_rsa
-          sudo chown -R $(whoami):$(whoami) ~/.ssh
-          ssh-keyscan -t rsa -H "${SERVER_HOST}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
-          sudo chmod 644 ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "${SERVER_HOST} $(ssh-keyscan -t rsa -H "${SERVER_HOST}" 2>/dev/null)" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
           
-          # Test SSH connection first
-          echo "Testing SSH connection..."
-          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${SERVER_USER}@${SERVER_HOST}" "echo 'SSH connection successful'"; then
-            echo "Error: Failed to establish SSH connection to ${SERVER_HOST}"
-            exit 1
-          fi
+          # Create remote directory first
+          echo "Creating remote directory..."
+          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "sudo mkdir -p /opt/openvpn && sudo chown -R \$(whoami):\$(whoami) /opt/openvpn"
           
           # Create deployment script
           echo "Creating deployment script..."
@@ -98,9 +53,6 @@ jobs:
           set -e
           echo "Starting deployment..."
           
-          # Ensure target directory exists
-          sudo mkdir -p /opt/openvpn
-          sudo chown -R $(whoami):$(whoami) /opt/openvpn
           cd /opt/openvpn
           
           # Clean up old files except volumes
@@ -123,7 +75,7 @@ jobs:
           scp -o StrictHostKeyChecking=no -r ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"
           scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"
           
-          # Execute deployment
+          # Set permissions and execute deployment
           echo "Starting remote deployment..."
           ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"
 
@@ -139,20 +91,12 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          # Debug environment variables (masked)
-          echo "Checking environment variables..."
-          echo "SERVER_HOST is${SERVER_HOST:+ set}"
-          echo "SERVER_USER is${SERVER_USER:+ set}"
-          echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
-          
           # Setup SSH
-          sudo rm -rf ~/.ssh
-          sudo mkdir -p ~/.ssh
-          echo "${AZURE_SSH_KEY}" | sudo tee ~/.ssh/id_rsa > /dev/null
-          sudo chmod 600 ~/.ssh/id_rsa
-          sudo chown -R $(whoami):$(whoami) ~/.ssh
-          ssh-keyscan -t rsa -H "${SERVER_HOST}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
-          sudo chmod 644 ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          echo "${SERVER_HOST} $(ssh-keyscan -t rsa -H "${SERVER_HOST}" 2>/dev/null)" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
           
           # Run tests
           echo "Running tests..."
