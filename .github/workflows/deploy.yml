@@ -15,25 +15,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup SSH
-        run: |
-          sudo rm -rf ~/.ssh
-          sudo mkdir -p ~/.ssh
-          echo "${{ secrets.AZURE_SSH_KEY }}" | sudo tee ~/.ssh/id_rsa > /dev/null
-          sudo chmod 600 ~/.ssh/id_rsa
-          sudo chown -R $(whoami):$(whoami) ~/.ssh
-          ssh-keyscan -t rsa -H "${{ secrets.SERVER_HOST }}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
-          sudo chmod 644 ~/.ssh/known_hosts
-
-      - name: Deploy to server
+      - name: Setup SSH and deploy
         env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+          SSH_HOST: ${{ secrets.SERVER_HOST }}
+          SSH_USER: ${{ secrets.SERVER_USER }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          # Setup SSH
+          sudo rm -rf ~/.ssh
+          sudo mkdir -p ~/.ssh
+          echo "$SSH_KEY" | sudo tee ~/.ssh/id_rsa > /dev/null
+          sudo chmod 600 ~/.ssh/id_rsa
+          sudo chown -R $(whoami):$(whoami) ~/.ssh
+          ssh-keyscan -t rsa -H "$SSH_HOST" | sudo tee -a ~/.ssh/known_hosts > /dev/null
+          sudo chmod 644 ~/.ssh/known_hosts
+          
           # Create deployment script
           cat > deploy_remote.sh << 'EOL'
           #!/bin/bash
@@ -57,15 +57,23 @@ jobs:
           EOF
           
           # Run deployment with sudo
-          sudo ./deploy.sh
+          sudo -E ./deploy.sh
           EOL
           
+          # Verify SSH connection
+          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_USER@$SSH_HOST "echo 'SSH connection successful'"; then
+            echo "Failed to establish SSH connection"
+            exit 1
+          fi
+          
           # Copy files to server
-          scp -o StrictHostKeyChecking=no -r ./* $SERVER_USER@$SERVER_HOST:/opt/openvpn/
-          scp -o StrictHostKeyChecking=no deploy_remote.sh $SERVER_USER@$SERVER_HOST:/opt/openvpn/
+          echo "Copying files to server..."
+          scp -o StrictHostKeyChecking=no -r ./* $SSH_USER@$SSH_HOST:/opt/openvpn/
+          scp -o StrictHostKeyChecking=no deploy_remote.sh $SSH_USER@$SSH_HOST:/opt/openvpn/
           
           # Execute deployment
-          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='$DOCKER_USERNAME' DOCKER_PASSWORD='$DOCKER_PASSWORD' DOCKER_TOKEN='$DOCKER_TOKEN' GH_TOKEN='$GH_TOKEN' sudo -E ./deploy_remote.sh"
+          echo "Starting remote deployment..."
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='$DOCKER_USERNAME' DOCKER_PASSWORD='$DOCKER_PASSWORD' DOCKER_TOKEN='$DOCKER_TOKEN' GH_TOKEN='$GH_TOKEN' sudo -E ./deploy_remote.sh"
 
   test:
     needs: deploy
@@ -73,19 +81,20 @@ jobs:
     environment: production
     
     steps:
-      - name: Setup SSH
-        run: |
-          sudo rm -rf ~/.ssh
-          sudo mkdir -p ~/.ssh
-          echo "${{ secrets.AZURE_SSH_KEY }}" | sudo tee ~/.ssh/id_rsa > /dev/null
-          sudo chmod 600 ~/.ssh/id_rsa
-          sudo chown -R $(whoami):$(whoami) ~/.ssh
-          ssh-keyscan -t rsa -H "${{ secrets.SERVER_HOST }}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
-          sudo chmod 644 ~/.ssh/known_hosts
-
       - name: Test OpenVPN connection
         env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+          SSH_HOST: ${{ secrets.SERVER_HOST }}
+          SSH_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && sudo ./test_ports.sh"
+          # Setup SSH
+          sudo rm -rf ~/.ssh
+          sudo mkdir -p ~/.ssh
+          echo "$SSH_KEY" | sudo tee ~/.ssh/id_rsa > /dev/null
+          sudo chmod 600 ~/.ssh/id_rsa
+          sudo chown -R $(whoami):$(whoami) ~/.ssh
+          ssh-keyscan -t rsa -H "$SSH_HOST" | sudo tee -a ~/.ssh/known_hosts > /dev/null
+          sudo chmod 644 ~/.ssh/known_hosts
+          
+          # Run tests
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "cd /opt/openvpn && sudo ./test_ports.sh"
