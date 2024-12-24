@@ -13,26 +13,25 @@ jobs:
     environment: production
     steps:
       - name: Check required secrets
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           missing_secrets=()
           
-          # List of required secrets
-          declare -A required_secrets=(
-            ["SERVER_HOST"]="Server hostname or IP address"
-            ["SERVER_USER"]="Server SSH username"
-            ["AZURE_SSH_KEY"]="SSH private key"
-            ["DOCKER_USERNAME"]="Docker Hub username"
-            ["DOCKER_PASSWORD"]="Docker Hub password"
-            ["DOCKER_TOKEN"]="Docker Hub token"
-            ["GH_TOKEN"]="GitHub token"
-          )
-          
           # Check each required secret
-          for secret in "${!required_secrets[@]}"; do
-            if [ -z "${{ secrets[format('{0}', secret)] }}" ]; then
-              missing_secrets+=("$secret (${required_secrets[$secret]})")
-            fi
-          done
+          [ -z "$SERVER_HOST" ] && missing_secrets+=("SERVER_HOST (Server hostname or IP address)")
+          [ -z "$SERVER_USER" ] && missing_secrets+=("SERVER_USER (Server SSH username)")
+          [ -z "$AZURE_SSH_KEY" ] && missing_secrets+=("AZURE_SSH_KEY (SSH private key)")
+          [ -z "$DOCKER_USERNAME" ] && missing_secrets+=("DOCKER_USERNAME (Docker Hub username)")
+          [ -z "$DOCKER_PASSWORD" ] && missing_secrets+=("DOCKER_PASSWORD (Docker Hub password)")
+          [ -z "$DOCKER_TOKEN" ] && missing_secrets+=("DOCKER_TOKEN (Docker Hub token)")
+          [ -z "$GH_TOKEN" ] && missing_secrets+=("GH_TOKEN (GitHub token)")
           
           # If any secrets are missing, fail the workflow
           if [ ${#missing_secrets[@]} -ne 0 ]; then
