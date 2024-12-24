@@ -25,6 +25,22 @@ jobs:
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          # Validate environment variables
+          if [ -z "$SSH_HOST" ]; then
+            echo "Error: SSH_HOST is not set"
+            exit 1
+          fi
+          if [ -z "$SSH_USER" ]; then
+            echo "Error: SSH_USER is not set"
+            exit 1
+          fi
+          if [ -z "$SSH_KEY" ]; then
+            echo "Error: SSH_KEY is not set"
+            exit 1
+          fi
+          
+          echo "Setting up SSH with host: $SSH_HOST and user: $SSH_USER"
+          
           # Setup SSH
           sudo rm -rf ~/.ssh
           sudo mkdir -p ~/.ssh
@@ -34,7 +50,15 @@ jobs:
           ssh-keyscan -t rsa -H "$SSH_HOST" | sudo tee -a ~/.ssh/known_hosts > /dev/null
           sudo chmod 644 ~/.ssh/known_hosts
           
+          # Test SSH connection first
+          echo "Testing SSH connection..."
+          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_USER@$SSH_HOST "echo 'SSH connection successful'"; then
+            echo "Error: Failed to establish SSH connection to $SSH_HOST"
+            exit 1
+          fi
+          
           # Create deployment script
+          echo "Creating deployment script..."
           cat > deploy_remote.sh << 'EOL'
           #!/bin/bash
           set -e
@@ -60,12 +84,6 @@ jobs:
           sudo -E ./deploy.sh
           EOL
           
-          # Verify SSH connection
-          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_USER@$SSH_HOST "echo 'SSH connection successful'"; then
-            echo "Failed to establish SSH connection"
-            exit 1
-          fi
-          
           # Copy files to server
           echo "Copying files to server..."
           scp -o StrictHostKeyChecking=no -r ./* $SSH_USER@$SSH_HOST:/opt/openvpn/
@@ -87,6 +105,22 @@ jobs:
           SSH_HOST: ${{ secrets.SERVER_HOST }}
           SSH_USER: ${{ secrets.SERVER_USER }}
         run: |
+          # Validate environment variables
+          if [ -z "$SSH_HOST" ]; then
+            echo "Error: SSH_HOST is not set"
+            exit 1
+          fi
+          if [ -z "$SSH_USER" ]; then
+            echo "Error: SSH_USER is not set"
+            exit 1
+          fi
+          if [ -z "$SSH_KEY" ]; then
+            echo "Error: SSH_KEY is not set"
+            exit 1
+          fi
+          
+          echo "Setting up SSH with host: $SSH_HOST and user: $SSH_USER"
+          
           # Setup SSH
           sudo rm -rf ~/.ssh
           sudo mkdir -p ~/.ssh
@@ -97,4 +131,5 @@ jobs:
           sudo chmod 644 ~/.ssh/known_hosts
           
           # Run tests
+          echo "Running tests..."
           ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST "cd /opt/openvpn && sudo ./test_ports.sh"
