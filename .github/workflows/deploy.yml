@@ -14,7 +14,6 @@ jobs:
     name: Deploy to Server
     runs-on: ubuntu-latest
     environment: production
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,37 +28,77 @@ jobs:
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # Debug environment variables (masked)
-          echo "Checking environment variables..."
-          echo "SERVER_HOST is${SERVER_HOST:+ set}"
-          echo "SERVER_USER is${SERVER_USER:+ set}"
-          echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
+          set -e
+          
+          function log() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+          }
+          
+          function error() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
+            exit 1
+          }
+          
+          # Verify environment variables
+          log "Checking environment variables..."
+          for var in SERVER_HOST SERVER_USER AZURE_SSH_KEY DOCKER_USERNAME DOCKER_PASSWORD DOCKER_TOKEN GH_TOKEN; do
+            if [ -z "${!var}" ]; then
+              error "$var is not set"
+            fi
+            log "$var is set"
+          done
           
           # Setup SSH
-          mkdir -p ~/.ssh
-          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          echo "${SERVER_HOST} $(ssh-keyscan -t rsa -H "${SERVER_HOST}" 2>/dev/null)" > ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
+          log "Setting up SSH..."
+          mkdir -p ~/.ssh || error "Failed to create SSH directory"
+          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa || error "Failed to write SSH key"
+          chmod 600 ~/.ssh/id_rsa || error "Failed to set SSH key permissions"
           
-          # Create remote directory first
-          echo "Creating remote directory..."
-          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "sudo mkdir -p /opt/openvpn && sudo chown -R \$(whoami):\$(whoami) /opt/openvpn"
+          # Get server's SSH key
+          log "Getting server's SSH key..."
+          if ! ssh-keyscan -t rsa -H "${SERVER_HOST}" > /tmp/known_hosts 2>/dev/null; then
+            error "Failed to get server's SSH key"
+          fi
+          cat /tmp/known_hosts > ~/.ssh/known_hosts || error "Failed to write known_hosts"
+          chmod 644 ~/.ssh/known_hosts || error "Failed to set known_hosts permissions"
+          
+          # Test SSH connection
+          log "Testing SSH connection..."
+          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${SERVER_USER}@${SERVER_HOST}" "echo 'SSH connection successful'"; then
+            error "Failed to establish SSH connection"
+          fi
+          
+          # Create remote directory
+          log "Creating remote directory..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "sudo mkdir -p /opt/openvpn && sudo chown -R \$(whoami):\$(whoami) /opt/openvpn"; then
+            error "Failed to create remote directory"
+          fi
           
           # Create deployment script
-          echo "Creating deployment script..."
+          log "Creating deployment script..."
           cat > deploy_remote.sh << 'EOL'
           #!/bin/bash
           set -e
-          echo "Starting deployment..."
           
-          cd /opt/openvpn
+          function log() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+          }
+          
+          function error() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
+            exit 1
+          }
+          
+          log "Starting deployment..."
+          cd /opt/openvpn || error "Failed to change directory"
           
           # Clean up old files except volumes
-          sudo find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} +
+          log "Cleaning up old files..."
+          sudo find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} + || error "Failed to clean up old files"
           
           # Create .env file
-          cat > .env << EOF
+          log "Creating .env file..."
+          cat > .env << EOF || error "Failed to create .env file"
           DOCKER_USERNAME=$DOCKER_USERNAME
           DOCKER_PASSWORD=$DOCKER_PASSWORD
           DOCKER_TOKEN=$DOCKER_TOKEN
@@ -67,24 +106,33 @@ jobs:
           EOF
           
           # Run deployment with sudo
-          sudo -E ./deploy.sh
+          log "Running deployment script..."
+          sudo -E ./deploy.sh || error "Deployment failed"
+          log "Deployment completed successfully"
           EOL
           
           # Copy files to server
-          echo "Copying files to server..."
-          scp -o StrictHostKeyChecking=no -r ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"
-          scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"
+          log "Copying files to server..."
+          if ! scp -o StrictHostKeyChecking=no -r ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
+            error "Failed to copy files to server"
+          fi
+          if ! scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
+            error "Failed to copy deployment script"
+          fi
           
-          # Set permissions and execute deployment
-          echo "Starting remote deployment..."
-          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"
+          # Execute deployment
+          log "Starting remote deployment..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"; then
+            error "Remote deployment failed"
+          fi
+          
+          log "Deployment completed successfully"
 
   test:
     name: Test Connection
     needs: deploy
     runs-on: ubuntu-latest
     environment: production
-    
     steps:
       - name: Test OpenVPN connection
         env:
@@ -92,13 +140,44 @@ jobs:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
+          set -e
+          
+          function log() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+          }
+          
+          function error() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
+            exit 1
+          }
+          
+          # Verify environment variables
+          log "Checking environment variables..."
+          for var in SERVER_HOST SERVER_USER AZURE_SSH_KEY; do
+            if [ -z "${!var}" ]; then
+              error "$var is not set"
+            fi
+            log "$var is set"
+          done
+          
           # Setup SSH
-          mkdir -p ~/.ssh
-          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          echo "${SERVER_HOST} $(ssh-keyscan -t rsa -H "${SERVER_HOST}" 2>/dev/null)" > ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
+          log "Setting up SSH..."
+          mkdir -p ~/.ssh || error "Failed to create SSH directory"
+          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa || error "Failed to write SSH key"
+          chmod 600 ~/.ssh/id_rsa || error "Failed to set SSH key permissions"
+          
+          # Get server's SSH key
+          log "Getting server's SSH key..."
+          if ! ssh-keyscan -t rsa -H "${SERVER_HOST}" > /tmp/known_hosts 2>/dev/null; then
+            error "Failed to get server's SSH key"
+          fi
+          cat /tmp/known_hosts > ~/.ssh/known_hosts || error "Failed to write known_hosts"
+          chmod 644 ~/.ssh/known_hosts || error "Failed to set known_hosts permissions"
           
           # Run tests
-          echo "Running tests..."
-          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo ./test_ports.sh"
+          log "Running tests..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo ./test_ports.sh"; then
+            error "Tests failed"
+          fi
+          
+          log "Tests completed successfully"
