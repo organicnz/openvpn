@@ -15,17 +15,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Copy files to server
-        uses: burnett01/rsync-deployments@6.0.0
-        with:
-          switches: -avzr --delete
-          path: ./*
-          remote_path: /opt/openvpn/
-          remote_host: ${{ secrets.SERVER_HOST }}
-          remote_user: ${{ secrets.SERVER_USER }}
-          remote_key: ${{ secrets.AZURE_SSH_KEY }}
-
-      - name: Run deployment
+      - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.0
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
@@ -38,7 +28,25 @@ jobs:
           key: ${{ secrets.AZURE_SSH_KEY }}
           envs: DOCKER_USERNAME,DOCKER_PASSWORD,DOCKER_TOKEN,GH_TOKEN
           script: |
+            # Ensure target directory exists
+            mkdir -p /opt/openvpn
             cd /opt/openvpn
+            
+            # Clean up old files except volumes
+            find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} +
+            
+            # Create temporary directory for new files
+            TEMP_DIR=$(mktemp -d)
+            cd $TEMP_DIR
+            
+            # Clone repository
+            git clone https://github.com/${{ github.repository }} .
+            
+            # Copy files to target directory
+            cp -r * /opt/openvpn/
+            cd /opt/openvpn
+            
+            # Set permissions
             chmod +x *.sh
             
             # Create .env file
@@ -48,6 +56,9 @@ jobs:
             DOCKER_TOKEN=${DOCKER_TOKEN}
             GH_TOKEN=${GH_TOKEN}
             EOF
+            
+            # Clean up temporary directory
+            rm -rf $TEMP_DIR
             
             # Run deployment
             ./deploy.sh
