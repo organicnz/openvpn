@@ -1,3 +1,4 @@
+---
 name: Deploy OpenVPN
 
 on:
@@ -7,7 +8,43 @@ on:
   workflow_dispatch:
 
 jobs:
+  check-secrets:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check required secrets
+        run: |
+          missing_secrets=()
+          
+          # List of required secrets
+          declare -A required_secrets=(
+            ["SERVER_HOST"]="Server hostname or IP address"
+            ["SERVER_USER"]="Server SSH username"
+            ["AZURE_SSH_KEY"]="SSH private key"
+            ["DOCKER_USERNAME"]="Docker Hub username"
+            ["DOCKER_PASSWORD"]="Docker Hub password"
+            ["DOCKER_TOKEN"]="Docker Hub token"
+            ["GH_TOKEN"]="GitHub token"
+          )
+          
+          # Check each required secret
+          for secret in "${!required_secrets[@]}"; do
+            if [ -z "${{ secrets[format('{0}', secret)] }}" ]; then
+              missing_secrets+=("$secret (${required_secrets[$secret]})")
+            fi
+          done
+          
+          # If any secrets are missing, fail the workflow
+          if [ ${#missing_secrets[@]} -ne 0 ]; then
+            echo "Error: The following required secrets are missing:"
+            printf '%s\n' "${missing_secrets[@]}"
+            exit 1
+          fi
+          
+          echo "All required secrets are set"
+
   deploy:
+    needs: check-secrets
     runs-on: ubuntu-latest
     environment: production
     
@@ -30,22 +67,6 @@ jobs:
           echo "SERVER_HOST is${SERVER_HOST:+ set}"
           echo "SERVER_USER is${SERVER_USER:+ set}"
           echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
-          
-          # Validate environment variables
-          if [ -z "${SERVER_HOST}" ]; then
-            echo "Error: SERVER_HOST is not set in secrets"
-            exit 1
-          fi
-          if [ -z "${SERVER_USER}" ]; then
-            echo "Error: SERVER_USER is not set in secrets"
-            exit 1
-          fi
-          if [ -z "${AZURE_SSH_KEY}" ]; then
-            echo "Error: AZURE_SSH_KEY is not set in secrets"
-            exit 1
-          fi
-          
-          echo "Setting up SSH with host: ${SERVER_HOST} and user: ${SERVER_USER}"
           
           # Setup SSH
           sudo rm -rf ~/.ssh
@@ -116,22 +137,6 @@ jobs:
           echo "SERVER_HOST is${SERVER_HOST:+ set}"
           echo "SERVER_USER is${SERVER_USER:+ set}"
           echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
-          
-          # Validate environment variables
-          if [ -z "${SERVER_HOST}" ]; then
-            echo "Error: SERVER_HOST is not set in secrets"
-            exit 1
-          fi
-          if [ -z "${SERVER_USER}" ]; then
-            echo "Error: SERVER_USER is not set in secrets"
-            exit 1
-          fi
-          if [ -z "${AZURE_SSH_KEY}" ]; then
-            echo "Error: AZURE_SSH_KEY is not set in secrets"
-            exit 1
-          fi
-          
-          echo "Setting up SSH with host: ${SERVER_HOST} and user: ${SERVER_USER}"
           
           # Setup SSH
           sudo rm -rf ~/.ssh
