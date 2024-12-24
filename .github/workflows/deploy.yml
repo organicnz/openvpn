@@ -105,6 +105,11 @@ jobs:
           GH_TOKEN=$GH_TOKEN
           EOF
           
+          # Verify docker-compose.yml exists
+          if [ ! -f docker-compose.yml ]; then
+            error "docker-compose.yml not found"
+          fi
+          
           # Run Docker commands
           log "Starting Docker services..."
           if ! sudo docker-compose pull; then
@@ -118,22 +123,24 @@ jobs:
           log "Deployment completed successfully"
           EOL
           
-          # Create archive of repository
-          log "Creating repository archive..."
-          tar czf repo.tar.gz * .env* .github || error "Failed to create repository archive"
+          # Verify docker-compose.yml exists locally
+          log "Verifying docker-compose.yml..."
+          if [ ! -f docker-compose.yml ]; then
+            error "docker-compose.yml not found in workspace"
+          fi
           
           # Copy files to server
           log "Copying files to server..."
-          if ! scp -o StrictHostKeyChecking=no repo.tar.gz "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
-            error "Failed to copy repository archive"
+          if ! scp -o StrictHostKeyChecking=no docker-compose.yml "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
+            error "Failed to copy docker-compose.yml"
           fi
           if ! scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
             error "Failed to copy deployment script"
           fi
           
-          # Extract archive and execute deployment
+          # Execute deployment
           log "Starting remote deployment..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && tar xzf repo.tar.gz && rm repo.tar.gz && sudo chmod +x deploy_remote.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"; then
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x deploy_remote.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"; then
             error "Remote deployment failed"
           fi
           
