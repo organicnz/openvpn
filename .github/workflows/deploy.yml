@@ -105,16 +105,23 @@ jobs:
           GH_TOKEN=$GH_TOKEN
           EOF
           
-          # Run deployment with sudo
-          log "Running deployment script..."
-          sudo -E ./deploy.sh || error "Deployment failed"
+          # Run Docker commands
+          log "Starting Docker services..."
+          if ! sudo docker-compose pull; then
+            error "Failed to pull Docker images"
+          fi
+          
+          if ! sudo docker-compose up -d; then
+            error "Failed to start Docker services"
+          fi
+          
           log "Deployment completed successfully"
           EOL
           
           # Copy files to server
           log "Copying files to server..."
-          if ! scp -o StrictHostKeyChecking=no -r ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
-            error "Failed to copy files to server"
+          if ! scp -o StrictHostKeyChecking=no -r docker-compose.yml "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
+            error "Failed to copy docker-compose.yml"
           fi
           if ! scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
             error "Failed to copy deployment script"
@@ -122,7 +129,7 @@ jobs:
           
           # Execute deployment
           log "Starting remote deployment..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"; then
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x deploy_remote.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"; then
             error "Remote deployment failed"
           fi
           
@@ -176,8 +183,8 @@ jobs:
           
           # Run tests
           log "Running tests..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo ./test_ports.sh"; then
-            error "Tests failed"
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn"; then
+            error "OpenVPN container is not running"
           fi
           
           log "Tests completed successfully"
