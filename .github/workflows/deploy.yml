@@ -1,0 +1,117 @@
+name: Deploy OpenVPN
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create deployment script
+        run: |
+          cat > deploy.sh << 'EOL'
+          #!/bin/bash
+          set -euo pipefail
+
+          # Function to show container logs
+          show_container_logs() {
+            local container_name=$1
+            echo "=== Logs for $container_name ==="
+            docker logs $container_name 2>&1 || true
+            echo "=== End logs for $container_name ==="
+            
+            echo "=== Status for $container_name ==="
+            docker inspect $container_name --format='{{.State.Status}} ({{.State.Health.Status}})' || true
+            echo "Restart count: $(docker inspect $container_name --format='{{.RestartCount}}' || echo 'N/A')"
+            echo "=== End status for $container_name ==="
+          }
+
+          # Function to verify container is running
+          verify_container() {
+            local container_name=$1
+            local max_attempts=30
+            local attempt=1
+            
+            echo "Verifying $container_name container..."
+            while [ $attempt -le $max_attempts ]; do
+              if docker ps --filter "name=$container_name" --filter "health=healthy" --format '{{.Names}}' | grep -q "^$container_name$"; then
+                echo "$container_name is healthy"
+                return 0
+              fi
+              
+              echo "Attempt $attempt/$max_attempts: Waiting for $container_name to be healthy..."
+              if [ $attempt -eq $max_attempts ]; then
+                echo "Container $container_name failed to become healthy"
+                show_container_logs $container_name
+                return 1
+              fi
+              
+              sleep 2
+              attempt=$((attempt + 1))
+            done
+          }
+
+          # Clean up old deployment
+          echo "Cleaning up old deployment..."
+          ./cleanup.sh
+
+          # Create .env file
+          echo "Creating .env file..."
+          cat > .env << EOF
+          DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD=${{ secrets.DOCKER_PASSWORD }}
+          DOCKER_TOKEN=${{ secrets.DOCKER_TOKEN }}
+          GH_TOKEN=${{ secrets.GH_TOKEN }}
+          EOF
+
+          # Start services
+          echo "Starting services..."
+          docker-compose up -d
+
+          # Verify OpenVPN container
+          verify_container "openvpn"
+
+          echo "Deployment completed successfully!"
+          EOL
+          chmod +x deploy.sh
+
+      - name: Copy files to server
+        run: |
+          scp -r ./* ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/openvpn/
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd /opt/openvpn && chmod +x *.sh"
+
+      - name: Deploy to server
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd /opt/openvpn && ./deploy.sh"
+
+  test:
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+      - name: Create SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Test OpenVPN connection
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd /opt/openvpn && ./test_ports.sh"

@@ -257,31 +257,32 @@ test_vpn_connection() {
         return 0
     else
         log "ERROR" "VPN connection test failed"
-        troubleshoot_network "${host}"
         return 1
     fi
 }
 
-# Main function
+# Main execution
 main() {
-    local host=${1:-"localhost"}
+    local host="${1:-localhost}"
     
     # Create log directory if it doesn't exist
-    mkdir -p "$(dirname "${LOG_FILE}")"
+    sudo mkdir -p "$(dirname "${LOG_FILE}")"
+    sudo touch "${LOG_FILE}"
+    sudo chown "$(id -u):$(id -g)" "${LOG_FILE}"
     
-    echo -e "${YELLOW}Starting port tests for ${host}...${NC}"
-    log "INFO" "Starting port tests for ${host}"
+    echo -e "${YELLOW}Starting port tests...${NC}"
+    log "INFO" "Starting port tests for host: ${host}"
     
     if test_vpn_connection "${host}"; then
         echo -e "\n${GREEN}All tests passed successfully!${NC}"
         log "INFO" "All tests passed successfully"
-        return 0
+        exit 0
     else
         echo -e "\n${RED}Some tests failed. Check the logs for details.${NC}"
         log "ERROR" "Some tests failed"
-        return 1
+        exit 1
     fi
 }
 
-# Run main function with command line arguments
+# Run main function with provided arguments
 main "$@" 

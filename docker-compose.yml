@@ -6,29 +6,36 @@ services:
     container_name: openvpn
     cap_add:
       - NET_ADMIN
-      - NET_RAW
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.default.forwarding=1
-      - net.ipv6.conf.all.forwarding=1
     ports:
       - "1194:1194/udp"
       - "1194:1194/tcp"
       - "3005-3009:3005-3009/tcp"  # Port forwarding range
     volumes:
-      - ./openvpn_data:/etc/openvpn:rw
+      - openvpn_data:/etc/openvpn
       - ./client_configs:/etc/openvpn/clients:ro
-      - ./logs:/var/log/openvpn:rw
     environment:
-      - EASYRSA_KEY_SIZE=4096
-      - EASYRSA_CA_EXPIRE=3650
-      - EASYRSA_CERT_EXPIRE=3650
-      - OVPN_SERVER_CN=newvps.westus.cloudapp.azure.com
+      - OVPN_DATA=/etc/openvpn
+      - OVPN_SERVER=10.8.0.0/16
+      - OVPN_PROTO=tcp
       - OVPN_PORT=1194
-      - OVPN_PROTO=udp
-      - OVPN_NETWORK=10.8.0.0/24
       - OVPN_DNS=8.8.8.8,8.8.4.4
+      - OVPN_MANAGEMENT=0.0.0.0 7505
+      - OVPN_ROUTES=10.8.0.0/16
+      - OVPN_NAT=true
+      - OVPN_COMP_LZO=false
+      - OVPN_CIPHER=AES-256-GCM
+      - OVPN_TLS_VERSION_MIN=1.2
+      - OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
+      - OVPN_DUPLICATE_CN=false
+      - OVPN_CLIENT_TO_CLIENT=false
+      - DOCKER_USERNAME=${DOCKER_USERNAME}
+      - DOCKER_PASSWORD=${DOCKER_PASSWORD}
+      - DOCKER_TOKEN=${DOCKER_TOKEN}
+      - GH_TOKEN=${GH_TOKEN}
+    networks:
+      openvpn_network:
+        ipv4_address: 10.8.0.1
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "pidof", "openvpn"]
       interval: 30s
@@ -40,32 +47,16 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    security_opt:
-      - no-new-privileges:true
-    networks:
-      default:
-        ipv4_address: 10.8.0.1
 
 networks:
-  default:
-    name: openvpn_network
+  openvpn_network:
     driver: bridge
     ipam:
       driver: default
       config:
         - subnet: 10.8.0.0/16
           gateway: 10.8.0.1
-          ip_range: 10.8.0.0/24
-    driver_opts:
-      com.docker.network.bridge.name: vpn0
-      com.docker.network.bridge.enable_ip_masquerade: "true"
-      com.docker.network.bridge.enable_icc: "false"
+
+volumes:
+  openvpn_data:
+    driver: local
