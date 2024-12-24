@@ -17,10 +17,13 @@ jobs:
 
       - name: Setup SSH
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          sudo rm -rf ~/.ssh
+          sudo mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" | sudo tee ~/.ssh/id_rsa > /dev/null
+          sudo chmod 600 ~/.ssh/id_rsa
+          sudo chown -R $(whoami):$(whoami) ~/.ssh
+          ssh-keyscan -t rsa -H "${{ secrets.SERVER_HOST }}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
+          sudo chmod 644 ~/.ssh/known_hosts
 
       - name: Deploy to server
         env:
@@ -38,11 +41,12 @@ jobs:
           echo "Starting deployment..."
           
           # Ensure target directory exists
-          mkdir -p /opt/openvpn
+          sudo mkdir -p /opt/openvpn
+          sudo chown -R $(whoami):$(whoami) /opt/openvpn
           cd /opt/openvpn
           
           # Clean up old files except volumes
-          find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} +
+          sudo find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} +
           
           # Create .env file
           cat > .env << EOF
@@ -52,16 +56,16 @@ jobs:
           GH_TOKEN=$GH_TOKEN
           EOF
           
-          # Run deployment
-          ./deploy.sh
+          # Run deployment with sudo
+          sudo ./deploy.sh
           EOL
           
           # Copy files to server
-          scp -r ./* $SERVER_USER@$SERVER_HOST:/opt/openvpn/
-          scp deploy_remote.sh $SERVER_USER@$SERVER_HOST:/opt/openvpn/
+          scp -o StrictHostKeyChecking=no -r ./* $SERVER_USER@$SERVER_HOST:/opt/openvpn/
+          scp -o StrictHostKeyChecking=no deploy_remote.sh $SERVER_USER@$SERVER_HOST:/opt/openvpn/
           
           # Execute deployment
-          ssh $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && chmod +x *.sh && DOCKER_USERNAME='$DOCKER_USERNAME' DOCKER_PASSWORD='$DOCKER_PASSWORD' DOCKER_TOKEN='$DOCKER_TOKEN' GH_TOKEN='$GH_TOKEN' ./deploy_remote.sh"
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='$DOCKER_USERNAME' DOCKER_PASSWORD='$DOCKER_PASSWORD' DOCKER_TOKEN='$DOCKER_TOKEN' GH_TOKEN='$GH_TOKEN' sudo -E ./deploy_remote.sh"
 
   test:
     needs: deploy
@@ -71,14 +75,17 @@ jobs:
     steps:
       - name: Setup SSH
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+          sudo rm -rf ~/.ssh
+          sudo mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" | sudo tee ~/.ssh/id_rsa > /dev/null
+          sudo chmod 600 ~/.ssh/id_rsa
+          sudo chown -R $(whoami):$(whoami) ~/.ssh
+          ssh-keyscan -t rsa -H "${{ secrets.SERVER_HOST }}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
+          sudo chmod 644 ~/.ssh/known_hosts
 
       - name: Test OpenVPN connection
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
           SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
-          ssh $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && ./test_ports.sh"
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && sudo ./test_ports.sh"
