@@ -22,11 +22,15 @@ jobs:
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ env.SERVER_USER }}
           key: ${{ secrets.AZURE_SSH_KEY }}
+          port: 22
           envs: DOCKER_USERNAME,DOCKER_PASSWORD,DOCKER_TOKEN,GH_TOKEN
+          command_timeout: 30m
           script: |
             # Ensure target directory exists
             mkdir -p /opt/openvpn
@@ -71,9 +75,14 @@ jobs:
     steps:
       - name: Test OpenVPN connection
         uses: appleboy/ssh-action@v1.0.0
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ env.SERVER_USER }}
           key: ${{ secrets.AZURE_SSH_KEY }}
+          port: 22
+          command_timeout: 5m
           script: |
             cd /opt/openvpn && ./test_ports.sh
