@@ -1,5 +1,6 @@
-# GitHub Actions workflow to deploy OpenVPN server
+# Deploy OpenVPN server using Docker
 name: Deploy OpenVPN
+run-name: Deploy OpenVPN to ${{ github.ref_name }}
 
 on:
   push:
@@ -9,11 +10,16 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   deploy:
     name: Deploy to Server
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -163,6 +169,7 @@ jobs:
     needs: deploy
     runs-on: ubuntu-latest
     environment: production
+    timeout-minutes: 5
     steps:
       - name: Test OpenVPN connection
         env:
