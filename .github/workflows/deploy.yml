@@ -17,9 +17,9 @@ jobs:
 
       - name: Setup SSH and deploy
         env:
-          SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          SSH_HOST: ${{ secrets.SERVER_HOST }}
-          SSH_USER: ${{ secrets.SERVER_USER }}
+          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
@@ -27,39 +27,39 @@ jobs:
         run: |
           # Debug environment variables (masked)
           echo "Checking environment variables..."
-          echo "SSH_HOST is${SSH_HOST:+ set}"
-          echo "SSH_USER is${SSH_USER:+ set}"
-          echo "SSH_KEY is${SSH_KEY:+ set}"
+          echo "SERVER_HOST is${SERVER_HOST:+ set}"
+          echo "SERVER_USER is${SERVER_USER:+ set}"
+          echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
           
           # Validate environment variables
-          if [ -z "${SSH_HOST}" ]; then
-            echo "Error: SSH_HOST (SERVER_HOST) is not set in secrets"
+          if [ -z "${SERVER_HOST}" ]; then
+            echo "Error: SERVER_HOST is not set in secrets"
             exit 1
           fi
-          if [ -z "${SSH_USER}" ]; then
-            echo "Error: SSH_USER (SERVER_USER) is not set in secrets"
+          if [ -z "${SERVER_USER}" ]; then
+            echo "Error: SERVER_USER is not set in secrets"
             exit 1
           fi
-          if [ -z "${SSH_KEY}" ]; then
-            echo "Error: SSH_KEY (AZURE_SSH_KEY) is not set in secrets"
+          if [ -z "${AZURE_SSH_KEY}" ]; then
+            echo "Error: AZURE_SSH_KEY is not set in secrets"
             exit 1
           fi
           
-          echo "Setting up SSH with host: ${SSH_HOST} and user: ${SSH_USER}"
+          echo "Setting up SSH with host: ${SERVER_HOST} and user: ${SERVER_USER}"
           
           # Setup SSH
           sudo rm -rf ~/.ssh
           sudo mkdir -p ~/.ssh
-          echo "${SSH_KEY}" | sudo tee ~/.ssh/id_rsa > /dev/null
+          echo "${AZURE_SSH_KEY}" | sudo tee ~/.ssh/id_rsa > /dev/null
           sudo chmod 600 ~/.ssh/id_rsa
           sudo chown -R $(whoami):$(whoami) ~/.ssh
-          ssh-keyscan -t rsa -H "${SSH_HOST}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
+          ssh-keyscan -t rsa -H "${SERVER_HOST}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
           sudo chmod 644 ~/.ssh/known_hosts
           
           # Test SSH connection first
           echo "Testing SSH connection..."
-          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${SSH_USER}@${SSH_HOST}" "echo 'SSH connection successful'"; then
-            echo "Error: Failed to establish SSH connection to ${SSH_HOST}"
+          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${SERVER_USER}@${SERVER_HOST}" "echo 'SSH connection successful'"; then
+            echo "Error: Failed to establish SSH connection to ${SERVER_HOST}"
             exit 1
           fi
           
@@ -92,12 +92,12 @@ jobs:
           
           # Copy files to server
           echo "Copying files to server..."
-          scp -o StrictHostKeyChecking=no -r ./* "${SSH_USER}@${SSH_HOST}:/opt/openvpn/"
-          scp -o StrictHostKeyChecking=no deploy_remote.sh "${SSH_USER}@${SSH_HOST}:/opt/openvpn/"
+          scp -o StrictHostKeyChecking=no -r ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"
+          scp -o StrictHostKeyChecking=no deploy_remote.sh "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"
           
           # Execute deployment
           echo "Starting remote deployment..."
-          ssh -o StrictHostKeyChecking=no "${SSH_USER}@${SSH_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"
+          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo chmod +x *.sh && DOCKER_USERNAME='${DOCKER_USERNAME}' DOCKER_PASSWORD='${DOCKER_PASSWORD}' DOCKER_TOKEN='${DOCKER_TOKEN}' GH_TOKEN='${GH_TOKEN}' sudo -E ./deploy_remote.sh"
 
   test:
     needs: deploy
@@ -107,41 +107,41 @@ jobs:
     steps:
       - name: Test OpenVPN connection
         env:
-          SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          SSH_HOST: ${{ secrets.SERVER_HOST }}
-          SSH_USER: ${{ secrets.SERVER_USER }}
+          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
         run: |
           # Debug environment variables (masked)
           echo "Checking environment variables..."
-          echo "SSH_HOST is${SSH_HOST:+ set}"
-          echo "SSH_USER is${SSH_USER:+ set}"
-          echo "SSH_KEY is${SSH_KEY:+ set}"
+          echo "SERVER_HOST is${SERVER_HOST:+ set}"
+          echo "SERVER_USER is${SERVER_USER:+ set}"
+          echo "AZURE_SSH_KEY is${AZURE_SSH_KEY:+ set}"
           
           # Validate environment variables
-          if [ -z "${SSH_HOST}" ]; then
-            echo "Error: SSH_HOST (SERVER_HOST) is not set in secrets"
+          if [ -z "${SERVER_HOST}" ]; then
+            echo "Error: SERVER_HOST is not set in secrets"
             exit 1
           fi
-          if [ -z "${SSH_USER}" ]; then
-            echo "Error: SSH_USER (SERVER_USER) is not set in secrets"
+          if [ -z "${SERVER_USER}" ]; then
+            echo "Error: SERVER_USER is not set in secrets"
             exit 1
           fi
-          if [ -z "${SSH_KEY}" ]; then
-            echo "Error: SSH_KEY (AZURE_SSH_KEY) is not set in secrets"
+          if [ -z "${AZURE_SSH_KEY}" ]; then
+            echo "Error: AZURE_SSH_KEY is not set in secrets"
             exit 1
           fi
           
-          echo "Setting up SSH with host: ${SSH_HOST} and user: ${SSH_USER}"
+          echo "Setting up SSH with host: ${SERVER_HOST} and user: ${SERVER_USER}"
           
           # Setup SSH
           sudo rm -rf ~/.ssh
           sudo mkdir -p ~/.ssh
-          echo "${SSH_KEY}" | sudo tee ~/.ssh/id_rsa > /dev/null
+          echo "${AZURE_SSH_KEY}" | sudo tee ~/.ssh/id_rsa > /dev/null
           sudo chmod 600 ~/.ssh/id_rsa
           sudo chown -R $(whoami):$(whoami) ~/.ssh
-          ssh-keyscan -t rsa -H "${SSH_HOST}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
+          ssh-keyscan -t rsa -H "${SERVER_HOST}" | sudo tee -a ~/.ssh/known_hosts > /dev/null
           sudo chmod 644 ~/.ssh/known_hosts
           
           # Run tests
           echo "Running tests..."
-          ssh -o StrictHostKeyChecking=no "${SSH_USER}@${SSH_HOST}" "cd /opt/openvpn && sudo ./test_ports.sh"
+          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && sudo ./test_ports.sh"
