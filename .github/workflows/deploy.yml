@@ -15,53 +15,53 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.AZURE_SSH_KEY }}
-          debug: true
-          command_timeout: 10m
-          script_stop: true
-          script: |
-            set -e
-            echo "Starting deployment..."
-            
-            # Ensure target directory exists
-            mkdir -p /opt/openvpn
-            cd /opt/openvpn
-            
-            # Clean up old files except volumes
-            find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} +
-            
-            # Create temporary directory for new files
-            TEMP_DIR=$(mktemp -d)
-            cd $TEMP_DIR
-            
-            # Clone repository
-            git clone https://github.com/${{ github.repository }} .
-            
-            # Copy files to target directory
-            cp -r * /opt/openvpn/
-            cd /opt/openvpn
-            
-            # Set permissions
-            chmod +x *.sh
-            
-            # Create .env file
-            cat > .env << EOF
-            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
-            DOCKER_PASSWORD=${{ secrets.DOCKER_PASSWORD }}
-            DOCKER_TOKEN=${{ secrets.DOCKER_TOKEN }}
-            GH_TOKEN=${{ secrets.GH_TOKEN }}
-            EOF
-            
-            # Clean up temporary directory
-            rm -rf $TEMP_DIR
-            
-            # Run deployment
-            ./deploy.sh
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # Create deployment script
+          cat > deploy_remote.sh << 'EOL'
+          #!/bin/bash
+          set -e
+          echo "Starting deployment..."
+          
+          # Ensure target directory exists
+          mkdir -p /opt/openvpn
+          cd /opt/openvpn
+          
+          # Clean up old files except volumes
+          find . -mindepth 1 -maxdepth 1 ! -name 'openvpn_data' -exec rm -rf {} +
+          
+          # Create .env file
+          cat > .env << EOF
+          DOCKER_USERNAME=$DOCKER_USERNAME
+          DOCKER_PASSWORD=$DOCKER_PASSWORD
+          DOCKER_TOKEN=$DOCKER_TOKEN
+          GH_TOKEN=$GH_TOKEN
+          EOF
+          
+          # Run deployment
+          ./deploy.sh
+          EOL
+          
+          # Copy files to server
+          scp -r ./* $SERVER_USER@$SERVER_HOST:/opt/openvpn/
+          scp deploy_remote.sh $SERVER_USER@$SERVER_HOST:/opt/openvpn/
+          
+          # Execute deployment
+          ssh $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && chmod +x *.sh && DOCKER_USERNAME='$DOCKER_USERNAME' DOCKER_PASSWORD='$DOCKER_PASSWORD' DOCKER_TOKEN='$DOCKER_TOKEN' GH_TOKEN='$GH_TOKEN' ./deploy_remote.sh"
 
   test:
     needs: deploy
@@ -69,15 +69,16 @@ jobs:
     environment: production
     
     steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
       - name: Test OpenVPN connection
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.AZURE_SSH_KEY }}
-          debug: true
-          command_timeout: 5m
-          script_stop: true
-          script: |
-            set -e
-            cd /opt/openvpn && ./test_ports.sh
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          ssh $SERVER_USER@$SERVER_HOST "cd /opt/openvpn && ./test_ports.sh"
