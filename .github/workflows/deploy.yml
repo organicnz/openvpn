@@ -21,9 +21,13 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.AZURE_SSH_KEY }}
-          port: 22
-          timeout: 30s
+          debug: true
+          command_timeout: 10m
+          script_stop: true
           script: |
+            set -e
+            echo "Starting deployment..."
+            
             # Ensure target directory exists
             mkdir -p /opt/openvpn
             cd /opt/openvpn
@@ -71,7 +75,9 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.AZURE_SSH_KEY }}
-          port: 22
-          timeout: 30s
+          debug: true
+          command_timeout: 5m
+          script_stop: true
           script: |
+            set -e
             cd /opt/openvpn && ./test_ports.sh
