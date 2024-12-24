@@ -108,7 +108,9 @@ jobs:
           log "Cleaning up Docker resources..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
             sudo docker-compose down --remove-orphans && \
-            sudo docker network prune -f"; then
+            sudo docker network prune -f && \
+            sudo lsof -i :1194 | grep LISTEN | awk '{print \$2}' | xargs -r sudo kill -9 && \
+            sleep 5"; then
             error "Failed to clean up Docker resources"
           fi
           
@@ -120,6 +122,13 @@ jobs:
             sudo -E docker network prune -f && \
             sudo -E docker-compose up -d"; then
             error "Deployment failed"
+          fi
+          
+          # Verify port is in use by our container
+          log "Verifying port..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            sudo lsof -i :1194 | grep docker"; then
+            error "Port 1194 is not in use by Docker container"
           fi
           
           log "Deployment completed successfully"
