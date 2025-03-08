@@ -42,6 +42,11 @@ jobs:
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # Check deprecated secrets
+          MONGO_USER: ${{ secrets.MONGO_USER }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          PRITUNL_ADMIN_USERNAME: ${{ secrets.PRITUNL_ADMIN_USERNAME }}
+          PRITUNL_ADMIN_PASSWORD: ${{ secrets.PRITUNL_ADMIN_PASSWORD }}
         run: |
           set -e
           
@@ -54,12 +59,24 @@ jobs:
             exit 1
           }
           
+          function warn() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - WARNING: $1" >&2
+          }
+          
           log "🔍 Checking environment variables..."
           for var in SERVER_HOST SERVER_USER AZURE_SSH_KEY OPENVPN_ADMIN_USERNAME OPENVPN_ADMIN_PASSWORD DOCKER_USERNAME DOCKER_PASSWORD DOCKER_TOKEN GH_TOKEN; do
             if [ -z "${!var}" ]; then
               error "$var is not set"
             fi
             log "✓ $var is set"
+          done
+          
+          # Check for deprecated secrets
+          log "🔍 Checking for deprecated secrets..."
+          for var in MONGO_USER MONGO_PASSWORD PRITUNL_ADMIN_USERNAME PRITUNL_ADMIN_PASSWORD; do
+            if [ -n "${!var}" ]; then
+              warn "$var is still set but no longer needed. Consider removing this secret."
+            fi
           done
           
           log "🔍 System Information"
@@ -202,7 +219,7 @@ jobs:
             log "Initializing OpenVPN PKI..."
             if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
               sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_genconfig \
-              -u udp://newvps.westus.cloudapp.azure.com:1194 \
+              -u udp://${SERVER_HOST}:1194 \
               -s 10.8.0.0/24 \
               -d \"8.8.8.8,8.8.4.4\" \
               -p \"route 10.8.0.0 255.255.255.0\" \
@@ -217,9 +234,30 @@ jobs:
               error "Failed to initialize OpenVPN configuration"
             fi
             
-            log "Initializing PKI (you'll need to enter a passphrase)..."
-            if ! ssh -o StrictHostKeyChecking=no -t "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn -it kylemanna/openvpn ovpn_initpki"; then
+            # Create a temp script for non-interactive PKI initialization
+            log "Creating PKI initialization script..."
+            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && cat > init_pki.sh << 'EOF'
+#!/bin/bash
+set -e
+# Create CA passphrase file
+echo 'vpn-secret-passphrase' > /etc/openvpn/pki_pass.txt
+# Initialize PKI with non-interactive approach
+easyrsa init-pki
+echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin --no-pass build-ca nopass
+# Basics
+easyrsa --batch gen-dh
+openvpn --genkey --secret /etc/openvpn/pki/ta.key
+# Clean up
+rm -f /etc/openvpn/pki_pass.txt
+EOF"; then
+              error "Failed to create PKI initialization script"
+            fi
+            
+            log "Running non-interactive PKI initialization..."
+            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+              chmod +x init_pki.sh && \
+              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn /etc/openvpn/init_pki.sh && \
+              rm init_pki.sh"; then
               error "Failed to initialize OpenVPN PKI"
             fi
           else
@@ -451,8 +489,10 @@ jobs:
       - name: Instructions for client management
         run: |
           echo "To add a new client certificate, run the following command on the server:"
-          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn -it kylemanna/openvpn easyrsa build-client-full CLIENT_NAME nopass"
+          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn easyrsa build-client-full CLIENT_NAME nopass"
           echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_getclient CLIENT_NAME > CLIENT_NAME.ovpn"
           echo
           echo "To revoke a client certificate, run the following command on the server:"
-          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn -it kylemanna/openvpn ovpn_revokeclient CLIENT_NAME"
+          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_revokeclient CLIENT_NAME"
+          echo
+          echo "Note: You can also manage client certificates using the web admin panel at http://SERVER_HOST:8080"
