@@ -226,26 +226,35 @@ jobs:
           fi
           
           # Initialize OpenVPN PKI if needed
+          log "Checking OpenVPN data directory..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "mkdir -p /opt/openvpn/openvpn_data"; then
+            error "Failed to create OpenVPN data directory"
+          fi
+          
+          # Always run ovpn_genconfig to ensure all necessary files are created
+          log "Configuring OpenVPN..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_genconfig \
+            -u udp://${SERVER_HOST}:1194 \
+            -u tcp://${SERVER_HOST}:1195 \
+            -s 10.20.0.0/24 \
+            -d \"8.8.8.8,8.8.4.4\" \
+            -p \"route 10.20.0.0 255.255.255.0\" \
+            -p \"route-gateway 10.20.0.1\" \
+            -p \"port-share localhost 3005-3009\" \
+            -p \"client-to-client\" \
+            -p \"duplicate-cn\" \
+            -p \"compress lz4-v2\" \
+            -p \"push \\\"compress lz4-v2\\\"\" \
+            -p \"push \\\"dhcp-option DNS 8.8.8.8\\\"\" \
+            -p \"push \\\"dhcp-option DNS 8.8.4.4\\\"\""; then
+            error "Failed to configure OpenVPN"
+          fi
+          
+          # Initialize PKI if it doesn't exist
           log "Checking if OpenVPN PKI needs initialization..."
           if ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "[ ! -d /opt/openvpn/openvpn_data/pki ]"; then
             log "Initializing OpenVPN PKI..."
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_genconfig \
-              -u udp://${SERVER_HOST}:1194 \
-              -u tcp://${SERVER_HOST}:1195 \
-              -s 10.20.0.0/24 \
-              -d \"8.8.8.8,8.8.4.4\" \
-              -p \"route 10.20.0.0 255.255.255.0\" \
-              -p \"route-gateway 10.20.0.1\" \
-              -p \"port-share localhost 3005-3009\" \
-              -p \"client-to-client\" \
-              -p \"duplicate-cn\" \
-              -p \"compress lz4-v2\" \
-              -p \"push \\\"compress lz4-v2\\\"\" \
-              -p \"push \\\"dhcp-option DNS 8.8.8.8\\\"\" \
-              -p \"push \\\"dhcp-option DNS 8.8.4.4\\\"\""; then
-              error "Failed to initialize OpenVPN configuration"
-            fi
             
             # Create a temp script for non-interactive PKI initialization
             log "Creating PKI initialization script..."
@@ -273,7 +282,63 @@ jobs:
               error "Failed to initialize OpenVPN PKI"
             fi
           else
-            log "OpenVPN PKI already initialized, skipping..."
+            log "OpenVPN PKI already initialized, skipping PKI initialization..."
+          fi
+          
+          # Verify and fix environment files
+          log "Verifying OpenVPN environment files..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            echo 'Checking for ovpn_env.sh...' && \
+            if [ ! -f openvpn_data/ovpn_env.sh ]; then \
+              echo 'Creating missing ovpn_env.sh...' && \
+              cat > openvpn_data/ovpn_env.sh << EOF
+export OVPN_AUTH=
+export OVPN_CIPHER=AES-256-GCM
+export OVPN_CLIENT_TO_CLIENT=1
+export OVPN_CN=${SERVER_HOST}
+export OVPN_COMP_LZO=0
+export OVPN_DEFROUTE=1
+export OVPN_DEVICE=tun
+export OVPN_DEVICEN=0
+export OVPN_DISABLE_PUSH_BLOCK_DNS=0
+export OVPN_DNS=1
+export OVPN_DNS_SERVERS=(\"8.8.8.8\" \"8.8.4.4\")
+export OVPN_ENV=/etc/openvpn/ovpn_env.sh
+export OVPN_EXTRA_CLIENT_CONFIG=()
+export OVPN_EXTRA_SERVER_CONFIG=()
+export OVPN_FRAGMENT=
+export OVPN_MTU=
+export OVPN_NAT=1
+export OVPN_OTP_AUTH=
+export OVPN_PORT=1194
+export OVPN_PROTO=both
+export OVPN_PUSH=()
+export OVPN_ROUTES=([0]=\"10.20.0.0/24\")
+export OVPN_SERVER=10.20.0.0/24
+export OVPN_SERVER_URL=udp://${SERVER_HOST}:1194
+export OVPN_SERVER_URL_TCP=tcp://${SERVER_HOST}:1195
+export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
+export OVPN_TLS_VERSION_MIN=1.2
+export OVPN_DUPLICATE_CN=1
+EOF
+            else \
+              echo 'Existing ovpn_env.sh found'; \
+            fi && \
+            echo 'Ensuring openvpn.conf exists...' && \
+            if [ ! -f openvpn_data/openvpn.conf ]; then \
+              echo 'Re-running ovpn_genconfig...' && \
+              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_genconfig \
+              -u udp://${SERVER_HOST}:1194 \
+              -u tcp://${SERVER_HOST}:1195 \
+              -s 10.20.0.0/24 \
+              -d \"8.8.8.8,8.8.4.4\" \
+              -p \"route 10.20.0.0 255.255.255.0\" \
+              -p \"route-gateway 10.20.0.1\" \
+              -p \"client-to-client\" \
+              -p \"duplicate-cn\" \
+              -p \"compress lz4-v2\"; \
+            fi"; then
+            error "Failed to verify OpenVPN environment"
           fi
           
           # Start services
