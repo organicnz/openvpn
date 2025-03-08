@@ -163,7 +163,7 @@ jobs:
             echo 'Freeing up required ports...' && \
             for port in 1194 8080 8081 3005 3006 3007 3008 3009; do \
               echo \"Checking port \$port...\" && \
-              pid=\$(sudo lsof -i :\$port -t) && \
+              pid=\$(sudo lsof -i :\$port -t 2>/dev/null || echo '') && \
               if [ ! -z \"\$pid\" ]; then \
                 echo \"Killing process \$pid using port \$port\" && \
                 sudo kill -9 \$pid || true; \
@@ -280,7 +280,7 @@ jobs:
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
             echo 'Verifying ports are free...' && \
             for port in 1194 8080 8081 3005 3006 3007 3008 3009; do \
-              if sudo lsof -i :\$port -t &>/dev/null; then \
+              if sudo lsof -i :\$port -t 2>/dev/null; then \
                 echo \"Error: Port \$port is still in use\" && exit 1; \
               else \
                 echo \"Port \$port is free\"; \

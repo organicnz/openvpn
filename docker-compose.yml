@@ -9,7 +9,7 @@ services:
       - NET_ADMIN
     ports:
       - "1194:1194/udp"
-      - "1194:1194/tcp"
+      - "1195:1194/tcp"  # Use port 1195 for TCP to avoid conflicts
       - "3005-3009:3005-3009/tcp"  # Port forwarding range
     volumes:
       - openvpn_data:/etc/openvpn
