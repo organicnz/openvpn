@@ -30,7 +30,7 @@ services:
       - OVPN_DUPLICATE_CN=true
       - OVPN_CLIENT_TO_CLIENT=true
       - DEBUG=1  # Enable debugging
-    command: sh -c "mkdir -p /dev/net && if [ ! -c /dev/net/tun ]; then mknod /dev/net/tun c 10 200; fi && echo 'OpenVPN starting with UDP and TCP support...' && openvpn --config /etc/openvpn/openvpn.conf"
+    entrypoint: ["ovpn_run"]
     networks:
       openvpn_net:
         ipv4_address: 10.20.0.2
