@@ -18,9 +18,9 @@ alwaysApply: false
 
 - All deployment operations are managed through the GitHub Actions workflow (deploy.yml)
 - The workflow is structured in sequential jobs with dependencies between them
-- Manual scripts are completely removed from the codebase in favor of workflow automation
 - The workflow should be triggered either by push to main or manually via workflow_dispatch
 - Failed jobs should provide clear error messages for troubleshooting
+- Required environment variables must be verified before deployment
 
 ## Workflow Jobs
 
@@ -42,6 +42,8 @@ alwaysApply: false
 
 - OpenVPN must use AES-256-GCM encryption and TLS 1.2+ protocol
 - Client certificates should be rotated at least every 90 days
+- Admin panel access should be restricted to authorized networks 
+- Admin credentials must be secure and changed from defaults
 - Implement connection logging and monitor for unauthorized access attempts
 - Disable compression in production environments unless absolutely necessary
 - Keep all containers updated with security patches
@@ -55,10 +57,18 @@ alwaysApply: false
 - All maintenance operations should be performed through the GitHub workflow
 - Server logs are stored in the /var/log/openvpn directory
 
+## Admin Interfaces
+
+- Two admin interfaces are available: openvpn-admin (port 8080) and openvpn-status (port 8081)
+- Admin interfaces should not be exposed to the public internet without proper security
+- Admin credentials must be stored in environment variables
+- Default admin credentials must never be used in production
+- The admin interfaces simplify certificate management and monitoring
+
 ## Client Certificate Management
 
-- Client certificates are managed exclusively through the client-management job
-- To create new client certificates, manually trigger the workflow with workflow_dispatch
+- Client certificates are managed through the web admin panel or the client-management job
+- To create new client certificates, use the admin panel or manually trigger the workflow
 - Client configuration files should be securely transferred to clients
 - Revoked certificates are automatically added to the Certificate Revocation List (CRL)
 - All certificate operations must be logged for audit purposes

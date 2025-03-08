@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # Main OpenVPN service
   openvpn:
     image: kylemanna/openvpn:2.4
     container_name: openvpn
@@ -42,6 +43,51 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Simple Admin Panel for OpenVPN
+  openvpn-admin:
+    image: ruimarinho/openvpn-admin:latest
+    container_name: openvpn-admin
+    depends_on:
+      - openvpn
+    ports:
+      - "8080:80"
+    volumes:
+      - openvpn_data:/etc/openvpn:ro
+    environment:
+      - OPENVPN_ADMIN_USERNAME=${OPENVPN_ADMIN_USERNAME:-admin}
+      - OPENVPN_ADMIN_PASSWORD=${OPENVPN_ADMIN_PASSWORD:-admin}
+    networks:
+      openvpn_network:
+        ipv4_address: 10.8.0.2
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Status Page for OpenVPN (alternative simple interface)
+  openvpn-status:
+    image: netzfisch/openvpn-status:latest
+    container_name: openvpn-status
+    depends_on:
+      - openvpn
+    ports:
+      - "8081:80"
+    environment:
+      - OPENVPN_STATUS_LOG=/var/log/openvpn/status.log
+      - OPENVPN_MANAGEMENT_HOST=openvpn
+      - OPENVPN_MANAGEMENT_PORT=7505
+    networks:
+      openvpn_network:
+        ipv4_address: 10.8.0.3
+    restart: unless-stopped
     logging:
       driver: "json-file"
       options:
