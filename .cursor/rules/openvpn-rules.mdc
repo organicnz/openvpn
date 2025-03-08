@@ -1,6 +1,6 @@
 ---
 description: OpenVPN Configuration and Deployment Rules
-globs: ["*.sh", "docker-compose.yml", ".env*", "client_configs/*"]
+globs: ["docker-compose.yml", ".env*", "client_configs/*", ".github/workflows/*"]
 alwaysApply: false
 ---
 
@@ -9,39 +9,56 @@ alwaysApply: false
 ## General Guidelines
 
 - Always use secure cipher suites (AES-256-GCM) and TLS 1.2+ for connections
-- Never commit secrets or credentials to the repository
-- All configuration parameters should be defined in the `.env` file
-- Always test containers locally before deploying to production
-- Keep client certificate management secure
+- Never commit secrets or credentials to the repository - use GitHub Secrets instead
+- All environment variables should be defined in GitHub Secrets and propagated to the `.env` file
+- All code changes must be reviewed before merging to main branch
+- Follow the principle of least privilege for all configurations
 
-## Deployment Rules
+## CI/CD Workflow Structure
 
-- Always run `./verify_env.sh` before deploying to verify environment variables
-- Use the CI/CD pipeline for production deployments
-- Test port availability before and after deployment with `./test_ports.sh`
-- Monitor the OpenVPN service using `./monitor_openvpn.sh`
-- Clean up resources properly after testing using `./cleanup.sh`
+- All deployment operations are managed through the GitHub Actions workflow (deploy.yml)
+- The workflow is structured in sequential jobs with dependencies between them
+- Manual scripts are completely removed from the codebase in favor of workflow automation
+- The workflow should be triggered either by push to main or manually via workflow_dispatch
+- Failed jobs should provide clear error messages for troubleshooting
+
+## Workflow Jobs
+
+1. **verify-env**: Validates all required environment variables and files
+2. **deploy**: Sets up SSH, cleans the environment, copies files, and starts services
+3. **test**: Verifies container status, port availability, and proper initialization
+4. **monitor**: Configures system monitoring via cron jobs
+5. **client-management**: Provides tools for managing OpenVPN client certificates
 
 ## Docker Configuration
 
-- Use specific image version tags, not `latest`
-- Set appropriate container restart policies (`unless-stopped`)
-- Define resource limits for containers
-- Use dedicated networks with fixed IP ranges
-- Implement proper volume management for persistent data
+- Use specific image version tags (e.g., kylemanna/openvpn:2.4), never use `latest`
+- Set container restart policy to `unless-stopped` in docker-compose.yml
+- Define network with fixed subnet (10.8.0.0/16) and appropriate gateway
+- Configure proper volume mapping for persistent data
+- Set resource limits to prevent container from consuming excessive resources
 
-## Security Practices
+## Security Requirements
 
-- Regularly rotate client certificates
-- Implement per-client firewall rules when necessary
-- Monitor logs for unauthorized access attempts
-- Keep the OpenVPN server updated with security patches
-- Disable features that aren't explicitly needed (e.g., compression)
-- Enforce strong certificate validation
+- OpenVPN must use AES-256-GCM encryption and TLS 1.2+ protocol
+- Client certificates should be rotated at least every 90 days
+- Implement connection logging and monitor for unauthorized access attempts
+- Disable compression in production environments unless absolutely necessary
+- Keep all containers updated with security patches
+- Port forwarding should be restricted to only necessary ports (3005-3009)
 
-## Client Management
+## Monitoring and Maintenance
 
-- Use the `init_openvpn.sh client add NAME` command to generate client certificates
-- Use the `init_openvpn.sh client revoke NAME` command to revoke client certificates
-- Keep an inventory of active clients and their certificate expiration dates
-- Set appropriate client connection parameters in client_configs directory
+- Automated monitoring checks run every 10 minutes via cron job
+- Self-healing mechanisms restart the container if it becomes unhealthy
+- Log rotation is configured to prevent disk space issues
+- All maintenance operations should be performed through the GitHub workflow
+- Server logs are stored in the /var/log/openvpn directory
+
+## Client Certificate Management
+
+- Client certificates are managed exclusively through the client-management job
+- To create new client certificates, manually trigger the workflow with workflow_dispatch
+- Client configuration files should be securely transferred to clients
+- Revoked certificates are automatically added to the Certificate Revocation List (CRL)
+- All certificate operations must be logged for audit purposes
