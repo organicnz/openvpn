@@ -1,5 +1,5 @@
 ---
-description: OpenVPN Configuration and Deployment Rules
+description: ## A
 globs: ["docker-compose.yml", ".env*", "client_configs/*", ".github/workflows/*"]
 alwaysApply: false
 ---
@@ -62,3 +62,7 @@ alwaysApply: false
 - Client configuration files should be securely transferred to clients
 - Revoked certificates are automatically added to the Certificate Revocation List (CRL)
 - All certificate operations must be logged for audit purposes
+
+## Don't forget to commit!
+- Don't forget to commit!
+
