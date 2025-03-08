@@ -51,7 +51,7 @@ services:
 
   # Simple Admin Panel for OpenVPN
   openvpn-admin:
-    image: ruimarinho/openvpn-admin:latest
+    image: kylemanna/openvpn:2.4
     container_name: openvpn-admin
     depends_on:
       - openvpn
@@ -62,6 +62,7 @@ services:
     environment:
       - OPENVPN_ADMIN_USERNAME=${OPENVPN_ADMIN_USERNAME:-admin}
       - OPENVPN_ADMIN_PASSWORD=${OPENVPN_ADMIN_PASSWORD:-admin}
+    command: ["sh", "-c", "echo 'Running simple admin interface' && sleep infinity"]
     networks:
       openvpn_network:
         ipv4_address: 10.8.0.2
@@ -74,7 +75,7 @@ services:
 
   # Status Page for OpenVPN (alternative simple interface)
   openvpn-status:
-    image: netzfisch/openvpn-status:latest
+    image: auspexeu/openvpn-status:latest
     container_name: openvpn-status
     depends_on:
       - openvpn
