@@ -1,10 +1,47 @@
 ---
-description: 
-globs: 
+description: OpenVPN Configuration and Deployment Rules
+globs: ["*.sh", "docker-compose.yml", ".env*", "client_configs/*"]
 alwaysApply: false
 ---
 
-# Your rule content
+# OpenVPN Stack Rules
 
-- You can @ files here
-- You can use markdown but dont have to
+## General Guidelines
+
+- Always use secure cipher suites (AES-256-GCM) and TLS 1.2+ for connections
+- Never commit secrets or credentials to the repository
+- All configuration parameters should be defined in the `.env` file
+- Always test containers locally before deploying to production
+- Keep client certificate management secure
+
+## Deployment Rules
+
+- Always run `./verify_env.sh` before deploying to verify environment variables
+- Use the CI/CD pipeline for production deployments
+- Test port availability before and after deployment with `./test_ports.sh`
+- Monitor the OpenVPN service using `./monitor_openvpn.sh`
+- Clean up resources properly after testing using `./cleanup.sh`
+
+## Docker Configuration
+
+- Use specific image version tags, not `latest`
+- Set appropriate container restart policies (`unless-stopped`)
+- Define resource limits for containers
+- Use dedicated networks with fixed IP ranges
+- Implement proper volume management for persistent data
+
+## Security Practices
+
+- Regularly rotate client certificates
+- Implement per-client firewall rules when necessary
+- Monitor logs for unauthorized access attempts
+- Keep the OpenVPN server updated with security patches
+- Disable features that aren't explicitly needed (e.g., compression)
+- Enforce strong certificate validation
+
+## Client Management
+
+- Use the `init_openvpn.sh client add NAME` command to generate client certificates
+- Use the `init_openvpn.sh client revoke NAME` command to revoke client certificates
+- Keep an inventory of active clients and their certificate expiration dates
+- Set appropriate client connection parameters in client_configs directory
