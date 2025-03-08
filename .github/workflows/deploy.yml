@@ -236,8 +236,7 @@ jobs:
             
             # Create a temp script for non-interactive PKI initialization
             log "Creating PKI initialization script..."
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && cat > init_pki.sh << 'EOF'
-#!/bin/bash
+            PKI_SCRIPT="#!/bin/bash
 set -e
 # Create CA passphrase file
 echo 'vpn-secret-passphrase' > /etc/openvpn/pki_pass.txt
@@ -248,8 +247,8 @@ echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin --no-pass build-ca
 easyrsa --batch gen-dh
 openvpn --genkey --secret /etc/openvpn/pki/ta.key
 # Clean up
-rm -f /etc/openvpn/pki_pass.txt
-EOF"; then
+rm -f /etc/openvpn/pki_pass.txt"
+            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && echo \"$PKI_SCRIPT\" > init_pki.sh"; then
               error "Failed to create PKI initialization script"
             fi
             
