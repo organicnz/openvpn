@@ -236,26 +236,27 @@ jobs:
             
             # Create a temp script for non-interactive PKI initialization
             log "Creating PKI initialization script..."
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && echo '#!/bin/bash' > init_pki.sh && \
-              echo 'set -e' >> init_pki.sh && \
-              echo '# Create CA passphrase file' >> init_pki.sh && \
-              echo \"echo 'vpn-secret-passphrase' > /etc/openvpn/pki_pass.txt\" >> init_pki.sh && \
-              echo '# Initialize PKI with non-interactive approach' >> init_pki.sh && \
-              echo 'easyrsa init-pki' >> init_pki.sh && \
-              echo \"echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin --no-pass build-ca nopass\" >> init_pki.sh && \
-              echo '# Basics' >> init_pki.sh && \
-              echo 'easyrsa --batch gen-dh' >> init_pki.sh && \
-              echo 'openvpn --genkey --secret /etc/openvpn/pki/ta.key' >> init_pki.sh && \
-              echo '# Clean up' >> init_pki.sh && \
-              echo 'rm -f /etc/openvpn/pki_pass.txt' >> init_pki.sh"; then
+            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && mkdir -p openvpn_data && echo '#!/bin/bash' > openvpn_data/init_pki.sh && \
+              echo 'set -e' >> openvpn_data/init_pki.sh && \
+              echo '# Create CA passphrase file' >> openvpn_data/init_pki.sh && \
+              echo \"echo 'vpn-secret-passphrase' > /etc/openvpn/pki_pass.txt\" >> openvpn_data/init_pki.sh && \
+              echo '# Initialize PKI with non-interactive approach' >> openvpn_data/init_pki.sh && \
+              echo 'cd /etc/openvpn' >> openvpn_data/init_pki.sh && \
+              echo 'easyrsa init-pki' >> openvpn_data/init_pki.sh && \
+              echo \"echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin --no-pass build-ca nopass\" >> openvpn_data/init_pki.sh && \
+              echo '# Basics' >> openvpn_data/init_pki.sh && \
+              echo 'easyrsa --batch gen-dh' >> openvpn_data/init_pki.sh && \
+              echo 'openvpn --genkey --secret /etc/openvpn/pki/ta.key' >> openvpn_data/init_pki.sh && \
+              echo '# Clean up' >> openvpn_data/init_pki.sh && \
+              echo 'rm -f /etc/openvpn/pki_pass.txt' >> openvpn_data/init_pki.sh && \
+              chmod +x openvpn_data/init_pki.sh"; then
               error "Failed to create PKI initialization script"
             fi
             
             log "Running non-interactive PKI initialization..."
             if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-              chmod +x init_pki.sh && \
-              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn /etc/openvpn/init_pki.sh && \
-              rm init_pki.sh"; then
+              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn bash /etc/openvpn/init_pki.sh && \
+              rm openvpn_data/init_pki.sh"; then
               error "Failed to initialize OpenVPN PKI"
             fi
           else
