@@ -243,7 +243,7 @@ jobs:
               echo '# Initialize PKI with non-interactive approach' >> openvpn_data/init_pki.sh && \
               echo 'cd /etc/openvpn' >> openvpn_data/init_pki.sh && \
               echo 'easyrsa init-pki' >> openvpn_data/init_pki.sh && \
-              echo \"echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin --no-pass build-ca nopass\" >> openvpn_data/init_pki.sh && \
+              echo \"echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin build-ca nopass\" >> openvpn_data/init_pki.sh && \
               echo '# Basics' >> openvpn_data/init_pki.sh && \
               echo 'easyrsa --batch gen-dh' >> openvpn_data/init_pki.sh && \
               echo 'openvpn --genkey --secret /etc/openvpn/pki/ta.key' >> openvpn_data/init_pki.sh && \
