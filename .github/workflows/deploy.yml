@@ -278,16 +278,27 @@ jobs:
           # Start services
           log "Starting deployment..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            echo 'Stopping any running Docker containers...' && \
+            sudo docker ps -q | xargs -r sudo docker stop && \
+            echo 'Removing any existing containers...' && \
+            sudo docker ps -a -q | xargs -r sudo docker rm -f && \
+            echo 'Performing deep cleanup of Docker resources...' && \
+            sudo systemctl restart docker && \
+            sleep 5 && \
+            echo 'Debug: Checking network interfaces and ports...' && \
+            sudo netstat -tulpn | grep -E ':(1194|1195|8080|8081|3005|3006|3007|3008|3009)' || echo 'No ports in use' && \
             echo 'Verifying ports are free...' && \
-            for port in 1194 8080 8081 3005 3006 3007 3008 3009; do \
+            for port in 1194 1195 8080 8081 3005 3006 3007 3008 3009; do \
               if sudo lsof -i :\$port -t 2>/dev/null; then \
                 echo \"Error: Port \$port is still in use\" && exit 1; \
               else \
                 echo \"Port \$port is free\"; \
               fi \
             done && \
+            echo 'Setting up Docker environment with clean slate...' && \
             sudo -E docker-compose pull && \
             sudo -E docker network prune -f && \
+            echo 'Starting containers with modified network settings...' && \
             sudo -E docker-compose up -d"; then
             error "Deployment failed"
           fi
@@ -349,25 +360,31 @@ jobs:
           
           # Test container status
           log "Testing OpenVPN container status..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn"; then
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-server"; then
             error "OpenVPN container is not running"
           fi
           
           log "Testing admin panel container status..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-admin"; then
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-admin-panel"; then
             error "OpenVPN admin panel container is not running"
           fi
           
           log "Testing status page container status..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-status"; then
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-status-page"; then
             error "OpenVPN status page container is not running"
           fi
           
           # Test port availability
-          log "Testing OpenVPN port..."
+          log "Testing OpenVPN UDP port..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
             sudo lsof -i :1194 | grep -q LISTEN"; then
-            error "Port 1194 is not open"
+            error "Port 1194 (UDP) is not open"
+          fi
+          
+          log "Testing OpenVPN TCP port..."
+          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            sudo lsof -i :1195 | grep -q LISTEN"; then
+            error "Port 1195 (TCP) is not open"
           fi
           
           log "Testing admin panel port..."
@@ -396,7 +413,7 @@ jobs:
           # Check OpenVPN logs
           log "Checking OpenVPN logs..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            docker logs openvpn | tail -n 10 | grep -q -i 'initialization sequence completed'"; then
+            docker logs openvpn-server | tail -n 10 | grep -q -i 'initialization sequence completed'"; then
             log "Warning: OpenVPN initialization message not found in logs"
           else
             log "OpenVPN initialization confirmed in logs"
@@ -468,8 +485,8 @@ jobs:
           # Create monitoring cron job
           log "Setting up monitoring cron job..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            echo '*/10 * * * * cd /opt/openvpn && docker logs openvpn | tail -n 100 > /var/log/openvpn/openvpn.log 2>&1' > /tmp/openvpn_cron && \
-            echo '0 */6 * * * cd /opt/openvpn && docker ps | grep -q openvpn || (docker-compose up -d && echo \"Restarted OpenVPN container at \$(date)\" >> /var/log/openvpn/restart.log)' >> /tmp/openvpn_cron && \
+            echo '*/10 * * * * cd /opt/openvpn && docker logs openvpn-server | tail -n 100 > /var/log/openvpn/openvpn.log 2>&1' > /tmp/openvpn_cron && \
+            echo '0 */6 * * * cd /opt/openvpn && docker ps | grep -q openvpn-server || (docker-compose up -d && echo \"Restarted OpenVPN container at \$(date)\" >> /var/log/openvpn/restart.log)' >> /tmp/openvpn_cron && \
             sudo crontab -u \$(whoami) /tmp/openvpn_cron && \
             rm /tmp/openvpn_cron"; then
             error "Failed to set up monitoring cron job"
