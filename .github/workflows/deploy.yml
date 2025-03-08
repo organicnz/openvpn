@@ -158,9 +158,21 @@ jobs:
           log "Cleaning up Docker resources..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
             [ -f docker-compose.yml ] && sudo docker-compose down --remove-orphans || true && \
+            sudo docker system prune -f && \
             sudo docker network prune -f && \
-            sudo lsof -i :1194 | grep LISTEN | awk '{print \$2}' | xargs -r sudo kill -9 && \
-            sleep 5"; then
+            echo 'Freeing up required ports...' && \
+            for port in 1194 8080 8081 3005 3006 3007 3008 3009; do \
+              echo \"Checking port \$port...\" && \
+              pid=\$(sudo lsof -i :\$port -t) && \
+              if [ ! -z \"\$pid\" ]; then \
+                echo \"Killing process \$pid using port \$port\" && \
+                sudo kill -9 \$pid || true; \
+              else \
+                echo \"No process using port \$port\"; \
+              fi \
+            done && \
+            echo 'Waiting for ports to be released...' && \
+            sleep 10"; then
             error "Failed to clean up Docker resources"
           fi
           
@@ -266,6 +278,14 @@ jobs:
           # Start services
           log "Starting deployment..."
           if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
+            echo 'Verifying ports are free...' && \
+            for port in 1194 8080 8081 3005 3006 3007 3008 3009; do \
+              if sudo lsof -i :\$port -t &>/dev/null; then \
+                echo \"Error: Port \$port is still in use\" && exit 1; \
+              else \
+                echo \"Port \$port is free\"; \
+              fi \
+            done && \
             sudo -E docker-compose pull && \
             sudo -E docker network prune -f && \
             sudo -E docker-compose up -d"; then

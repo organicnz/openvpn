@@ -1,4 +1,4 @@
-version: '3.8'
+# Deploy OpenVPN server using Docker
 
 services:
   # Main OpenVPN service
