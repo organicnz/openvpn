@@ -30,7 +30,7 @@ services:
       - OVPN_DUPLICATE_CN=true
       - OVPN_CLIENT_TO_CLIENT=true
       - DEBUG=1  # Enable debugging
-    entrypoint: ["ovpn_run"]
+    # Using the default entrypoint
     networks:
       openvpn_net:
         ipv4_address: 10.20.0.2
