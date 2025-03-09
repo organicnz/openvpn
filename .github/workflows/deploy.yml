@@ -1,3 +1,4 @@
+---
 # Deploy OpenVPN server using Docker
 name: Deploy OpenVPN
 run-name: Deploy OpenVPN to ${{ github.ref_name }}
@@ -291,36 +292,34 @@ jobs:
             echo 'Checking for ovpn_env.sh...' && \
             if [ ! -f openvpn_data/ovpn_env.sh ]; then \
               echo 'Creating missing ovpn_env.sh...' && \
-              cat > openvpn_data/ovpn_env.sh << EOF
-export OVPN_AUTH=
-export OVPN_CIPHER=AES-256-GCM
-export OVPN_CLIENT_TO_CLIENT=1
-export OVPN_CN=${SERVER_HOST}
-export OVPN_COMP_LZO=0
-export OVPN_DEFROUTE=1
-export OVPN_DEVICE=tun
-export OVPN_DEVICEN=0
-export OVPN_DISABLE_PUSH_BLOCK_DNS=0
-export OVPN_DNS=1
-export OVPN_DNS_SERVERS=(\"8.8.8.8\" \"8.8.4.4\")
-export OVPN_ENV=/etc/openvpn/ovpn_env.sh
-export OVPN_EXTRA_CLIENT_CONFIG=()
-export OVPN_EXTRA_SERVER_CONFIG=()
-export OVPN_FRAGMENT=
-export OVPN_MTU=
-export OVPN_NAT=1
-export OVPN_OTP_AUTH=
-export OVPN_PORT=1194
-export OVPN_PROTO=both
-export OVPN_PUSH=()
-export OVPN_ROUTES=([0]=\"10.20.0.0/24\")
-export OVPN_SERVER=10.20.0.0/24
-export OVPN_SERVER_URL=udp://${SERVER_HOST}:1194
-export OVPN_SERVER_URL_TCP=tcp://${SERVER_HOST}:1195
-export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
-export OVPN_TLS_VERSION_MIN=1.2
-export OVPN_DUPLICATE_CN=1
-EOF
+              echo 'export OVPN_AUTH=' > openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_CIPHER=AES-256-GCM' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_CLIENT_TO_CLIENT=1' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_CN=${SERVER_HOST}' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_COMP_LZO=0' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DEFROUTE=1' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DEVICE=tun' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DEVICEN=0' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DISABLE_PUSH_BLOCK_DNS=0' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DNS=1' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DNS_SERVERS=(\"8.8.8.8\" \"8.8.4.4\")' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_ENV=/etc/openvpn/ovpn_env.sh' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_EXTRA_CLIENT_CONFIG=()' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_EXTRA_SERVER_CONFIG=()' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_FRAGMENT=' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_MTU=' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_NAT=1' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_OTP_AUTH=' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_PORT=1194' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_PROTO=both' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_PUSH=()' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_ROUTES=([0]=\"10.20.0.0/24\")' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_SERVER=10.20.0.0/24' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_SERVER_URL=udp://${SERVER_HOST}:1194' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_SERVER_URL_TCP=tcp://${SERVER_HOST}:1195' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_TLS_VERSION_MIN=1.2' >> openvpn_data/ovpn_env.sh && \
+              echo 'export OVPN_DUPLICATE_CN=1' >> openvpn_data/ovpn_env.sh; \
             else \
               echo 'Existing ovpn_env.sh found'; \
             fi && \
