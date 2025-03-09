@@ -54,8 +54,8 @@ services:
         chmod 644 /etc/openvpn/ovpn_env.sh
         echo 'Environment file created!'
         ls -la /etc/openvpn/
-      fi
-      echo 'Starting OpenVPN server...'
+      fi; 
+      echo 'Starting OpenVPN server...'; 
       ovpn_run"
     healthcheck:
       test: ["CMD", "sh", "-c", "test -f /etc/openvpn/ovpn_env.sh && grep -q OVPN_SERVER /etc/openvpn/ovpn_env.sh"]
