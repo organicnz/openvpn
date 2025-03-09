@@ -3,7 +3,7 @@
 services:
   # Main OpenVPN service
   openvpn:
-    image: kylemanna/openvpn:2.4
+    image: kylemanna/openvpn
     container_name: openvpn-server
     cap_add:
       - NET_ADMIN
@@ -12,40 +12,65 @@ services:
       - "1195:1194/tcp"  # Use port 1195 for TCP to avoid conflicts
       - "3005-3009:3005-3009/tcp"  # Port forwarding range
     volumes:
-      - openvpn_data:/etc/openvpn
+      - ./openvpn_data:/etc/openvpn
       - ./client_configs:/etc/openvpn/clients:ro
+    restart: always
     environment:
-      - OVPN_DATA=/etc/openvpn
-      - OVPN_SERVER=10.20.0.0/16
-      - OVPN_PROTO=both  # Enable both UDP and TCP
-      - OVPN_PORT=1194
-      - OVPN_DNS=8.8.8.8,8.8.4.4
-      - OVPN_MANAGEMENT=0.0.0.0 7505
-      - OVPN_ROUTES=10.20.0.0/16
-      - OVPN_NAT=true
-      - OVPN_COMP_LZO=false
-      - OVPN_CIPHER=AES-256-GCM
-      - OVPN_TLS_VERSION_MIN=1.2
-      - OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
-      - OVPN_DUPLICATE_CN=true
       - OVPN_CLIENT_TO_CLIENT=true
-      - DEBUG=1  # Enable debugging
-    # Using the default entrypoint
-    networks:
-      openvpn_net:
-        ipv4_address: 10.20.0.2
-    restart: unless-stopped
+      - DEBUG=1
+    # Override the command to ensure environment file is created before starting OpenVPN
+    command: >
+      /bin/bash -c "
+      if [ ! -f /etc/openvpn/ovpn_env.sh ]; then
+        echo 'Creating missing environment file...'
+        echo 'export OVPN_AUTH=' > /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_CIPHER=AES-256-GCM' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_CLIENT_TO_CLIENT=1' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_CN=$${HOSTNAME}' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_COMP_LZO=0' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DEFROUTE=1' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DEVICE=tun' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DEVICEN=0' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DISABLE_PUSH_BLOCK_DNS=0' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DNS=1' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DNS_SERVERS=(\\\"8.8.8.8\\\" \\\"8.8.4.4\\\")' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_ENV=/etc/openvpn/ovpn_env.sh' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_EXTRA_CLIENT_CONFIG=()' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_EXTRA_SERVER_CONFIG=()' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_FRAGMENT=' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_MTU=' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_NAT=1' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_OTP_AUTH=' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_PORT=1194' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_PROTO=both' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_PUSH=()' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_ROUTES=([0]=\\\"10.20.0.0/24\\\")' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_SERVER=10.20.0.0/24' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_SERVER_URL=udp://$${HOSTNAME}:1194' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_SERVER_URL_TCP=tcp://$${HOSTNAME}:1195' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_TLS_VERSION_MIN=1.2' >> /etc/openvpn/ovpn_env.sh
+        echo 'export OVPN_DUPLICATE_CN=1' >> /etc/openvpn/ovpn_env.sh
+        chmod 644 /etc/openvpn/ovpn_env.sh
+        echo 'Environment file created!'
+        ls -la /etc/openvpn/
+      fi
+      echo 'Starting OpenVPN server...'
+      ovpn_run"
     healthcheck:
-      test: ["CMD", "pidof", "openvpn"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "sh", "-c", "test -f /etc/openvpn/ovpn_env.sh && grep -q OVPN_SERVER /etc/openvpn/ovpn_env.sh"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 5s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      openvpn_net:
+        ipv4_address: 10.20.0.2
 
   # Simple Admin Panel for OpenVPN
   openvpn-admin:
