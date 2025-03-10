@@ -41,8 +41,8 @@ services:
       OVPN_CLIENT_TO_CLIENT: 1
       OVPN_DUPLICATE_CN: 1
       DEBUG: 1
-    # Startup script
-    command: |
+    # Startup script with fixed syntax for YAML compatibility
+    command: >
       bash -c '
       # Error handling
       set -e
@@ -51,37 +51,34 @@ services:
       # Environment file creation
       if [ ! -f /etc/openvpn/ovpn_env.sh ]; then
         echo "Creating environment file..."
-        
-        cat > /etc/openvpn/ovpn_env.sh << EOF
-export OVPN_AUTH=
-export OVPN_CIPHER=AES-256-GCM
-export OVPN_CLIENT_TO_CLIENT=1
-export OVPN_CN=${HOSTNAME}
-export OVPN_COMP_LZO=0
-export OVPN_DEFROUTE=1
-export OVPN_DEVICE=tun
-export OVPN_DEVICEN=0
-export OVPN_DISABLE_PUSH_BLOCK_DNS=0
-export OVPN_DNS=1
-export OVPN_DNS_SERVERS=("8.8.8.8" "8.8.4.4")
-export OVPN_ENV=/etc/openvpn/ovpn_env.sh
-export OVPN_EXTRA_CLIENT_CONFIG=()
-export OVPN_EXTRA_SERVER_CONFIG=()
-export OVPN_FRAGMENT=
-export OVPN_MTU=
-export OVPN_NAT=1
-export OVPN_OTP_AUTH=
-export OVPN_PORT=1194
-export OVPN_PROTO=both
-export OVPN_PUSH=()
-export OVPN_ROUTES=([0]="10.20.0.0/24")
-export OVPN_SERVER=10.20.0.0/24
-export OVPN_SERVER_URL=udp://${HOSTNAME}:1194
-export OVPN_SERVER_URL_TCP=tcp://${HOSTNAME}:1195
-export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384
-export OVPN_TLS_VERSION_MIN=1.2
-export OVPN_DUPLICATE_CN=1
-EOF
+        echo "export OVPN_AUTH=" > /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_CIPHER=AES-256-GCM" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_CLIENT_TO_CLIENT=1" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_CN=${HOSTNAME}" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_COMP_LZO=0" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DEFROUTE=1" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DEVICE=tun" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DEVICEN=0" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DISABLE_PUSH_BLOCK_DNS=0" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DNS=1" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DNS_SERVERS=(\"8.8.8.8\" \"8.8.4.4\")" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_ENV=/etc/openvpn/ovpn_env.sh" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_EXTRA_CLIENT_CONFIG=()" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_EXTRA_SERVER_CONFIG=()" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_FRAGMENT=" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_MTU=" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_NAT=1" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_OTP_AUTH=" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_PORT=1194" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_PROTO=both" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_PUSH=()" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_ROUTES=([0]=\"10.20.0.0/24\")" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_SERVER=10.20.0.0/24" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_SERVER_URL=udp://${HOSTNAME}:1194" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_SERVER_URL_TCP=tcp://${HOSTNAME}:1195" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_TLS_VERSION_MIN=1.2" >> /etc/openvpn/ovpn_env.sh
+        echo "export OVPN_DUPLICATE_CN=1" >> /etc/openvpn/ovpn_env.sh
         chmod 644 /etc/openvpn/ovpn_env.sh
         echo "Environment file created successfully"
       else
