@@ -7,6 +7,9 @@ services:
     container_name: openvpn-server
     cap_add:
       - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
     ports:
       - 1194:1194/udp
       - 1195:1194/tcp  # Use port 1195 for TCP to avoid conflicts
@@ -64,16 +67,20 @@ services:
         echo "Using existing environment file:";
         ls -la /etc/openvpn/ovpn_env.sh;
       fi;
+      
+      # Create required directories
+      mkdir -p /etc/openvpn/ccd;
+      
       echo "Starting OpenVPN server...";
-      exec ovpn_run;
+      exec openvpn --config /etc/openvpn/openvpn.conf --client-config-dir /etc/openvpn/ccd;
       '
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "pidof", "openvpn"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      test: ["CMD-SHELL", "pgrep openvpn || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     logging:
       driver: json-file
       options:
