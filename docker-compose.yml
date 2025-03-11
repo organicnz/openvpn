@@ -12,11 +12,15 @@ x-logging: &default-logging
 x-restart-policy: &default-restart
   restart: unless-stopped
 
+# Combined default configuration
+x-defaults: &defaults
+  <<: *default-logging
+  <<: *default-restart
+
 services:
   # Main OpenVPN service
   openvpn:
-    <<: *default-logging
-    <<: *default-restart
+    <<: *defaults
     image: kylemanna/openvpn:latest
     container_name: openvpn-server
     cap_add:
@@ -34,10 +38,10 @@ services:
     environment:
       # EasyRSA settings
       EASYRSA_BATCH: 1
-      EASYRSA_REQ_CN: "OpenVPN CA"
+      EASYRSA_REQ_CN: OpenVPN CA
       # OpenVPN core settings
-      OVPN_SERVER: "10.20.0.0/24"
-      OVPN_DNS: "8.8.8.8,8.8.4.4"
+      OVPN_SERVER: 10.20.0.0/24
+      OVPN_DNS: 8.8.8.8,8.8.4.4
       OVPN_CLIENT_TO_CLIENT: 1
       OVPN_DUPLICATE_CN: 1
       DEBUG: 1
@@ -104,8 +108,7 @@ services:
 
   # Simple Admin Panel for OpenVPN
   openvpn-admin:
-    <<: *default-logging
-    <<: *default-restart
+    <<: *defaults
     image: kylemanna/openvpn:2.4
     container_name: openvpn-admin-panel
     depends_on:
@@ -124,8 +127,7 @@ services:
 
   # Status Page for OpenVPN
   openvpn-status:
-    <<: *default-logging
-    <<: *default-restart
+    <<: *defaults
     image: auspexeu/openvpn-status:latest
     container_name: openvpn-status-page
     depends_on:
