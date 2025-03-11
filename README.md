@@ -1,134 +1,101 @@
-# OpenVPN Server Setup
+# OpenVPN Docker Deployment
 
-This repository contains the configuration for an OpenVPN server with a simple admin panel using Docker Compose.
+This repository contains a Docker Compose setup for deploying and managing an OpenVPN server with an admin panel and status page.
+
+## Features
+
+- OpenVPN server with both UDP and TCP support
+- Client-to-client networking capability
+- IPv6 forwarding support
+- Administrative web panel
+- Status monitoring page
+- Persistent storage for configurations and certificates
+- Automated health checks
 
 ## Prerequisites
 
-- Docker and Docker Compose
-- Git
-- SSH access to the deployment server
+- Docker and Docker Compose installed
+- Basic understanding of networking and OpenVPN
+- Port forwarding configured on your router/firewall (for external access)
 
-## Environment Variables
+## Quick Start
 
-Create a `.env` file with the following variables:
-```env
-OPENVPN_ADMIN_USERNAME=admin
-OPENVPN_ADMIN_PASSWORD=your_secure_password
-DOCKER_USERNAME=your_docker_username  # Optional
-DOCKER_TOKEN=your_docker_token        # Optional
-GH_TOKEN=your_github_token            # Optional
-```
+1. Clone this repository:
+   ```
+   git clone https://github.com/organicnz/openvpn.git
+   cd openvpn
+   ```
 
-## GitHub Secrets
+2. Start the services:
+   ```
+   docker-compose up -d
+   ```
 
-The following secrets need to be set in your GitHub repository:
+3. Initialize the PKI (first time only):
+   ```
+   docker-compose exec openvpn ovpn_genconfig -u udp://vpn.example.com
+   docker-compose exec openvpn ovpn_initpki
+   ```
 
-- `AZURE_SSH_KEY`: SSH private key for deployment
-- `SERVER_HOST`: Hostname or IP of the deployment server
-- `SERVER_USER`: Username for SSH connection to the deployment server
-- `OPENVPN_ADMIN_USERNAME`: Admin panel username
-- `OPENVPN_ADMIN_PASSWORD`: Admin panel password
-- `DOCKER_USERNAME`: Docker Hub username (optional)
-- `DOCKER_TOKEN`: Docker Hub access token (optional)
-- `GH_TOKEN`: GitHub token (optional)
+4. Generate a client certificate:
+   ```
+   docker-compose exec openvpn easyrsa build-client-full CLIENT_NAME nopass
+   docker-compose exec openvpn ovpn_getclient CLIENT_NAME > CLIENT_NAME.ovpn
+   ```
 
-## CI/CD Pipeline
+## Configuration
 
-The repository uses GitHub Actions for continuous integration and deployment. The workflow "Deploy OpenVPN" runs on every push to the main branch and includes:
+### Environment Variables
 
-### Deployment Phase:
-1. Checks out the code
-2. Creates necessary configuration files
-3. Deploys to the server
-4. Pulls required Docker images
-5. Starts the services
+You can customize the deployment by setting these environment variables:
 
-### Testing Phase:
-After successful deployment, the workflow automatically tests:
-1. Container status
-2. Port availability
-3. OpenVPN initialization
+- `OPENVPN_ADMIN_USERNAME`: Username for the admin panel (default: admin)
+- `OPENVPN_ADMIN_PASSWORD`: Password for the admin panel (default: admin)
 
-## Manual Deployment
+### Network Configuration
 
-```bash
-# Clone the repository
-git clone https://github.com/organicnz/openvpn.git
-cd openvpn
+The OpenVPN server is configured with the following network:
+- Server network: 10.20.0.0/24
+- Docker internal network: 10.20.0.0/16
 
-# Create .env file
-cp .env.example .env
-# Edit .env with your values
+## Service Access
 
-# Start the services
-docker-compose up -d
-
-# Check status
-docker-compose ps
-```
-
-## Ports
-
-The following ports are used:
-- 1194: OpenVPN (UDP/TCP)
-- 8080: Admin Panel Web Interface
-- 8081: OpenVPN Status Page
-- 3005-3009: Additional port forwarding range
-
-## Accessing the Admin Interfaces
-
+- OpenVPN Server: UDP port 1194, TCP port 1195
 - Admin Panel: http://your-server-ip:8080
 - Status Page: http://your-server-ip:8081
 
-## Client Management
-
-To create a new client certificate:
-```bash
-docker-compose exec openvpn easyrsa build-client-full CLIENT_NAME nopass
-docker-compose exec openvpn ovpn_getclient CLIENT_NAME > CLIENT_NAME.ovpn
-```
-
-To revoke a client certificate:
-```bash
-docker-compose exec openvpn ovpn_revokeclient CLIENT_NAME
-```
-
 ## Maintenance
 
-To update the services:
-```bash
-docker-compose pull
-docker-compose up -d
+### Backing Up Configurations
+
+All OpenVPN configurations, certificates and keys are stored in the `openvpn_data` Docker volume. 
+You can create a backup with:
+
+```
+docker run --rm -v openvpn_data:/data -v $(pwd):/backup alpine tar -czvf /backup/openvpn-backup.tar.gz /data
 ```
 
-To view logs:
-```bash
-docker-compose logs -f
+### Restoring a Backup
+
+```
+docker run --rm -v openvpn_data:/data -v $(pwd):/backup alpine sh -c "rm -rf /data/* && tar -xzvf /backup/openvpn-backup.tar.gz -C /"
 ```
 
 ## Troubleshooting
 
-If you encounter issues:
+### Container Health Check Failures
 
-1. Check container logs:
-```bash
+If the container fails health checks, you can check logs with:
+
+```
 docker-compose logs openvpn
-docker-compose logs openvpn-admin
-docker-compose logs openvpn-status
 ```
 
-2. Verify port availability:
-```bash
-nc -zv localhost 1194
-nc -zv localhost 8080
-```
+Common issues:
+- Missing configuration file: Make sure to run the initialization steps
+- Permission issues: Check file permissions in the mounted volumes
+- Network conflicts: Ensure there are no conflicts with the 10.20.0.0/24 subnet
 
-3. Check OpenVPN status:
-```bash
-docker-compose exec openvpn cat /tmp/openvpn-status.log
-```
+## License
 
-4. Test OpenVPN management interface:
-```bash
-echo "status" | nc localhost 7505
-``` 
+This project is open-source and available under the MIT License. 
