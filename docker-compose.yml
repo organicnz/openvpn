@@ -1,114 +1,250 @@
-# Deploy OpenVPN server using Docker
+# Production OpenVPN Docker Compose Configuration
 version: '3.8'
 
-# Define common configurations as YAML anchors
+# YAML anchors for reusable configuration
 x-logging: &default-logging
-  logging:
-    driver: json-file
-    options:
-      max-size: 10m
-      max-file: 3
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
 
-x-restart-policy: &default-restart
+x-security: &default-security
+  - no-new-privileges:true
+
+x-restart: &default-restart
   restart: unless-stopped
 
-# Combined defaults for all services
-x-defaults: &defaults
-  <<: *default-logging
-  <<: *default-restart
-
-# Environment defaults for OpenVPN
 x-openvpn-environment: &openvpn-env
-  # EasyRSA settings
   EASYRSA_BATCH: 1
   EASYRSA_REQ_CN: OpenVPN CA
-  # OpenVPN core settings
-  OVPN_SERVER: 10.20.0.0/24
-  OVPN_DNS: 8.8.8.8,8.8.4.4
-  OVPN_CLIENT_TO_CLIENT: 1
-  OVPN_DUPLICATE_CN: 1
-  DEBUG: 1
+  OVPN_SERVER: "${OVPN_SERVER:-10.20.0.0/24}"
+  OVPN_NETMASK: "${OVPN_NETMASK:-255.255.255.0}"
+  OVPN_DNS: "${OVPN_DNS:-8.8.8.8,8.8.4.4}"
+  OVPN_DNS1: "${OVPN_DNS1:-8.8.8.8}"
+  OVPN_DNS2: "${OVPN_DNS2:-8.8.4.4}"
+  OVPN_CLIENT_TO_CLIENT: "${OVPN_CLIENT_TO_CLIENT:-1}"
+  OVPN_DUPLICATE_CN: "${OVPN_DUPLICATE_CN:-1}"
+  OPENVPN_UDP_PORT: "${OPENVPN_UDP_PORT:-1194}"
+  OPENVPN_TCP_PORT: "${OPENVPN_TCP_PORT:-1195}"
+  HOSTNAME: "${VPN_DOMAIN:-vpn.example.com}"
+  DEBUG: "${DEBUG:-0}"
+
+secrets:
+  admin_username:
+    file: ./secrets/admin_username.txt
+  admin_password:
+    file: ./secrets/admin_password.txt
+  ca_password:
+    file: ./secrets/ca_password.txt
 
 services:
-  # Main OpenVPN service
   openvpn:
-    <<: *defaults
-    image: kylemanna/openvpn:latest
+    image: kylemanna/openvpn:2.4
     container_name: openvpn-server
+    <<: *default-restart
     cap_add:
       - NET_ADMIN
-    sysctls:
-      net.ipv6.conf.all.forwarding: 1
-      net.ipv6.conf.default.forwarding: 1
     ports:
-      - 1194:1194/udp
-      - 1195:1194/tcp  # Use port 1195 for TCP to avoid conflicts
-      - 3005-3009:3005-3009/tcp  # Port forwarding range
+      - "${OPENVPN_UDP_PORT:-1194}:1194/udp"
+      - "${OPENVPN_TCP_PORT:-1195}:1194/tcp"
+      - "${OPENVPN_PORT_RANGE:-3005-3009}:3005-3009/tcp"
     volumes:
       - openvpn_data:/etc/openvpn
       - ./client_configs:/etc/openvpn/clients:ro
-      - ./setup.sh:/usr/local/bin/setup.sh:ro
+      - ./server_configs:/etc/openvpn/server_configs:ro
+      - ./scripts/setup.sh:/usr/local/bin/setup.sh:ro
+      - ./scripts/backup-certs.sh:/usr/local/bin/backup-certs.sh:ro
+      - /tmp/openvpn:/tmp/openvpn
+      - ./backups:/backups
     environment:
       <<: *openvpn-env
-    # Use the external setup script
+    secrets:
+      - ca_password
     entrypoint: ["/usr/local/bin/setup.sh"]
     healthcheck:
-      test: [CMD-SHELL, "pgrep openvpn || exit 1"]
-      interval: 60s
+      test: ["CMD-SHELL", "pgrep openvpn && nc -z localhost 7505"]
+      interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 3
       start_period: 30s
     networks:
       openvpn_net:
         ipv4_address: 10.20.0.2
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: 0.5
+        reservations:
+          memory: 256M
+          cpus: 0.25
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: stop-first
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+    security_opt: *default-security
+    sysctls:
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.conf.default.forwarding=1
+      - net.ipv4.ip_forward=1
+    logging: *default-logging
 
-  # Admin Panel for OpenVPN
   openvpn-admin:
-    <<: *defaults
-    image: kylemanna/openvpn:2.4
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
     container_name: openvpn-admin-panel
+    <<: *default-restart
     depends_on:
-      - openvpn
+      openvpn:
+        condition: service_healthy
     ports:
-      - 8080:80
+      - "${ADMIN_PORT:-8080}:80"
     volumes:
       - openvpn_data:/etc/openvpn:ro
+    secrets:
+      - admin_username
+      - admin_password
     environment:
-      OPENVPN_ADMIN_USERNAME: ${OPENVPN_ADMIN_USERNAME:-admin}
-      OPENVPN_ADMIN_PASSWORD: ${OPENVPN_ADMIN_PASSWORD:-admin}
-    command: [sh, -c, "echo 'Running admin interface' && sleep infinity"]
+      OPENVPN_ADMIN_USERNAME_FILE: /run/secrets/admin_username
+      OPENVPN_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       openvpn_net:
         ipv4_address: 10.20.0.3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: 0.5
+        reservations:
+          memory: 128M
+          cpus: 0.1
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+    security_opt: *default-security
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache/nginx
+    logging: *default-logging
 
-  # Status Page for OpenVPN
   openvpn-status:
-    <<: *defaults
-    image: auspexeu/openvpn-status:latest
+    image: auspexeu/openvpn-status:1.0
     container_name: openvpn-status-page
+    <<: *default-restart
     depends_on:
-      - openvpn
+      openvpn:
+        condition: service_healthy
     ports:
-      - 8081:80
+      - "${STATUS_PORT:-8081}:80"
     environment:
       OPENVPN_STATUS_LOG: /var/log/openvpn/status.log
       OPENVPN_MANAGEMENT_HOST: openvpn-server
       OPENVPN_MANAGEMENT_PORT: 7505
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       openvpn_net:
         ipv4_address: 10.20.0.4
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: 0.25
+        reservations:
+          memory: 64M
+          cpus: 0.1
+    security_opt: *default-security
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *default-logging
 
-# Network configuration
+  # Monitoring stack
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: openvpn-prometheus
+    <<: *default-restart
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - openvpn_net
+    security_opt: *default-security
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:10.0.3
+    container_name: openvpn-grafana
+    <<: *default-restart
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/admin_password
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_SECURITY_COOKIE_SECURE: true
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: true
+    secrets:
+      - admin_password
+    networks:
+      - openvpn_net
+    security_opt: *default-security
+    logging: *default-logging
+
 networks:
   openvpn_net:
     driver: bridge
     ipam:
-      driver: default
       config:
         - subnet: 10.20.0.0/16
           gateway: 10.20.0.1
+    name: openvpn_network
+    labels:
+      description: "OpenVPN internal network"
 
-# Data persistence
 volumes:
   openvpn_data:
     driver: local
+    name: openvpn_data
+    labels:
+      description: "OpenVPN configuration and certificate data"
+  prometheus_data:
+    driver: local
+    name: prometheus_data
+    labels:
+      description: "Prometheus time-series data"
+  grafana_data:
+    driver: local
+    name: grafana_data
+    labels:
+      description: "Grafana dashboard data"

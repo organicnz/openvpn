@@ -1,0 +1,83 @@
+# Production OpenVPN Server Configuration Template
+# This file is used as a base for dynamic server configuration
+
+# Network Configuration
+port ${OPENVPN_UDP_PORT:-1194}
+proto udp
+dev tun
+topology subnet
+
+# Certificate and Key Paths
+ca /etc/openvpn/pki/ca.crt
+cert /etc/openvpn/pki/issued/server.crt
+key /etc/openvpn/pki/private/server.key
+dh /etc/openvpn/pki/dh.pem
+tls-crypt /etc/openvpn/pki/tc.key
+
+# Network Settings
+server ${OVPN_SERVER:-10.20.0.0} ${OVPN_NETMASK:-255.255.255.0}
+ifconfig-pool-persist /var/log/openvpn/ipp.txt
+client-config-dir /etc/openvpn/ccd
+
+# Security Settings
+user nobody
+group nogroup
+persist-key
+persist-tun
+cipher AES-256-GCM
+auth SHA512
+tls-version-min 1.3
+tls-ciphersuites TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+ecdh-curve secp384r1
+
+# Client Settings
+client-to-client
+duplicate-cn
+remote-cert-tls client
+verify-client-cert require
+
+# DNS Push Settings
+push "dhcp-option DNS ${OVPN_DNS1:-8.8.8.8}"
+push "dhcp-option DNS ${OVPN_DNS2:-8.8.4.4}"
+push "block-outside-dns"
+push "redirect-gateway def1 bypass-dhcp"
+
+# Performance Settings
+sndbuf 393216
+rcvbuf 393216
+push "sndbuf 393216"
+push "rcvbuf 393216"
+mssfix 1400
+tun-mtu 1500
+
+# Connection Settings
+keepalive 10 60
+explicit-exit-notify 1
+connect-retry-max 3
+hand-window 10
+tran-window 3600
+reneg-sec 3600
+
+# Management Interface
+management localhost 7505 /etc/openvpn/management-password
+management-client-auth
+
+# Logging
+verb ${DEBUG:-3}
+status /var/log/openvpn/openvpn-status.log 30
+status-version 3
+log-append /var/log/openvpn/openvpn.log
+mute 20
+
+# Security Hardening
+max-clients 50
+tls-timeout 10
+tls-cert-profile preferred
+
+# Compression (disabled for security)
+compress
+
+# Additional Push Options
+push "topology subnet"
+push "route-metric 512"
+push "comp-lzo no"

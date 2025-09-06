@@ -1,0 +1,15 @@
+name: 'Setup SSH'
+description: 'Configure SSH for server deployment'
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "$SSH_KEY" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts
+      env:
+        SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+        SERVER_HOST: ${{ secrets.SERVER_HOST }}

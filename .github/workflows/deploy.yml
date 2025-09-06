@@ -1,683 +1,191 @@
----
-# Deploy OpenVPN server using Docker
-name: Deploy OpenVPN
-run-name: Deploy OpenVPN to ${{ github.ref_name }}
+name: Production Deployment
 
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: write
 
-defaults:
-  run:
-    shell: bash
+env:
+  DEPLOYMENT_PATH: /opt/openvpn
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/openvpn-admin
 
 jobs:
-  verify-env:
-    name: Verify Environment
+  test:
+    name: Test & Validate
     runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 5
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify required files
+      - name: Validate Docker Compose
         run: |
-          if [ ! -f docker-compose.yml ]; then
-            echo "Error: docker-compose.yml not found in repository"
-            exit 1
-          fi
+          docker-compose config --quiet
 
-      - name: Verify environment variables
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          OPENVPN_ADMIN_USERNAME: ${{ secrets.OPENVPN_ADMIN_USERNAME }}
-          OPENVPN_ADMIN_PASSWORD: ${{ secrets.OPENVPN_ADMIN_PASSWORD }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          # Check deprecated secrets
-          MONGO_USER: ${{ secrets.MONGO_USER }}
-          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          PRITUNL_ADMIN_USERNAME: ${{ secrets.PRITUNL_ADMIN_USERNAME }}
-          PRITUNL_ADMIN_PASSWORD: ${{ secrets.PRITUNL_ADMIN_PASSWORD }}
+      - name: Build images
         run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          function warn() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - WARNING: $1" >&2
-          }
-          
-          log "🔍 Checking environment variables..."
-          for var in SERVER_HOST SERVER_USER AZURE_SSH_KEY OPENVPN_ADMIN_USERNAME OPENVPN_ADMIN_PASSWORD DOCKER_USERNAME DOCKER_PASSWORD DOCKER_TOKEN GH_TOKEN; do
-            if [ -z "${!var}" ]; then
-              error "$var is not set"
-            fi
-            log "✓ $var is set"
-          done
-          
-          # Check for deprecated secrets
-          log "🔍 Checking for deprecated secrets..."
-          for var in MONGO_USER MONGO_PASSWORD PRITUNL_ADMIN_USERNAME PRITUNL_ADMIN_PASSWORD; do
-            if [ -n "${!var}" ]; then
-              warn "$var is still set but no longer needed. Consider removing this secret."
-            fi
-          done
-          
-          log "🔍 System Information"
-          uname -a
-          log "✓ System info check"
-          
-          log "All environment variables verified successfully"
+          docker-compose build --no-cache
+
+      - name: Run integration tests
+        run: |
+          ./tests/integration-test.sh
+
+      - name: Security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'openvpn-admin:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+  build-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push admin image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
 
   deploy:
-    name: Deploy to Server
-    needs: verify-env
+    name: Deploy Production
     runs-on: ubuntu-latest
+    needs: [build-push]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     environment: production
-    timeout-minutes: 10
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup SSH connection
-        env:
-          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-        run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Setup SSH
-          log "Setting up SSH..."
-          mkdir -p ~/.ssh || error "Failed to create SSH directory"
-          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa || error "Failed to write SSH key"
-          chmod 600 ~/.ssh/id_rsa || error "Failed to set SSH key permissions"
-          
-          # Get server's SSH key
-          log "Getting server's SSH key..."
-          if ! ssh-keyscan -t rsa -H "${SERVER_HOST}" > /tmp/known_hosts 2>/dev/null; then
-            error "Failed to get server's SSH key"
-          fi
-          cat /tmp/known_hosts > ~/.ssh/known_hosts || error "Failed to write known_hosts"
-          chmod 644 ~/.ssh/known_hosts || error "Failed to set known_hosts permissions"
-          
-          # Test SSH connection
-          log "Testing SSH connection..."
-          if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${SERVER_USER}@${SERVER_HOST}" "echo 'SSH connection successful'"; then
-            error "Failed to establish SSH connection"
-          fi
+      - name: Setup SSH
+        uses: ./.github/actions/setup-ssh
 
-      - name: Clean up and prepare environment
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+      - name: Deploy application
         run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Create remote directory
-          log "Creating remote directory..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "sudo mkdir -p /opt/openvpn && sudo chown -R \$(whoami):\$(whoami) /opt/openvpn"; then
-            error "Failed to create remote directory"
-          fi
-          
-          # Clean up Docker resources
-          log "Cleaning up Docker resources..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            [ -f docker-compose.yml ] && sudo docker-compose down --remove-orphans || true && \
-            sudo docker system prune -f && \
-            sudo docker network prune -f && \
-            echo 'Freeing up required ports...' && \
-            for port in 1194 8080 8081 3005 3006 3007 3008 3009; do \
-              echo \"Checking port \$port...\" && \
-              pid=\$(sudo lsof -i :\$port -t 2>/dev/null || echo '') && \
-              if [ ! -z \"\$pid\" ]; then \
-                echo \"Killing process \$pid using port \$port\" && \
-                sudo kill -9 \$pid || true; \
-              else \
-                echo \"No process using port \$port\"; \
-              fi \
-            done && \
-            echo 'Waiting for ports to be released...' && \
-            sleep 10"; then
-            error "Failed to clean up Docker resources"
-          fi
-          
-          # Remove temporary files and directories
-          log "Cleaning up temporary files..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            sudo rm -rf /tmp/openvpn_* 2>/dev/null || true && \
-            sudo find /var/log/openvpn -type f -name '*.log' -size +10M -delete 2>/dev/null || true"; then
-            log "Warning: Some cleanup tasks failed, but continuing..."
-          fi
-          
-          log "Environment cleanup completed successfully"
+          ssh -o StrictHostKeyChecking=no "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "
+            sudo mkdir -p $DEPLOYMENT_PATH &&
+            sudo chown -R \$(whoami):\$(whoami) $DEPLOYMENT_PATH
+          "
 
-      - name: Copy files and deploy
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Copy repository files to server (excluding scripts that will be integrated into the workflow)
-          log "Copying repository files to server..."
-          if ! rsync -avz --exclude="*.sh" --exclude=".git" --exclude=".github" ./* "${SERVER_USER}@${SERVER_HOST}:/opt/openvpn/"; then
-            error "Failed to copy repository files"
-          fi
-          
-          # Create .env file on server
-          log "Creating .env file on server..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && cat > .env << EOF
-          OPENVPN_ADMIN_USERNAME='${OPENVPN_ADMIN_USERNAME}'
-          OPENVPN_ADMIN_PASSWORD='${OPENVPN_ADMIN_PASSWORD}'
-          DOCKER_USERNAME='${DOCKER_USERNAME}'
-          DOCKER_PASSWORD='${DOCKER_PASSWORD}'
-          DOCKER_TOKEN='${DOCKER_TOKEN}'
-          GH_TOKEN='${GH_TOKEN}'
-          EOF"; then
-            error "Failed to create .env file"
-          fi
-          
-          # Initialize OpenVPN PKI if needed
-          log "Checking OpenVPN data directory..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "mkdir -p /opt/openvpn/openvpn_data"; then
-            error "Failed to create OpenVPN data directory"
-          fi
-          
-          # Always run ovpn_genconfig to ensure all necessary files are created
-          log "Configuring OpenVPN..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_genconfig \
-            -u udp://${SERVER_HOST}:1194 \
-            -u tcp://${SERVER_HOST}:1195 \
-            -s 10.20.0.0/24 \
-            -d \"8.8.8.8,8.8.4.4\" \
-            -p \"route 10.20.0.0 255.255.255.0\" \
-            -p \"route-gateway 10.20.0.1\" \
-            -p \"port-share localhost 3005-3009\" \
-            -p \"client-to-client\" \
-            -p \"duplicate-cn\" \
-            -p \"compress lz4-v2\" \
-            -p \"push \\\"compress lz4-v2\\\"\" \
-            -p \"push \\\"dhcp-option DNS 8.8.8.8\\\"\" \
-            -p \"push \\\"dhcp-option DNS 8.8.4.4\\\"\""; then
-            error "Failed to configure OpenVPN"
-          fi
-          
-          # Initialize PKI if it doesn't exist
-          log "Checking if OpenVPN PKI needs initialization..."
-          if ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "[ ! -d /opt/openvpn/openvpn_data/pki ]"; then
-            log "Initializing OpenVPN PKI..."
-            
-            # Create a temp script for non-interactive PKI initialization
-            log "Creating PKI initialization script..."
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && mkdir -p openvpn_data && echo '#!/bin/bash' > openvpn_data/init_pki.sh && \
-              echo 'set -e' >> openvpn_data/init_pki.sh && \
-              echo '# Create CA passphrase file' >> openvpn_data/init_pki.sh && \
-              echo \"echo 'vpn-secret-passphrase' > /etc/openvpn/pki_pass.txt\" >> openvpn_data/init_pki.sh && \
-              echo '# Initialize PKI with non-interactive approach' >> openvpn_data/init_pki.sh && \
-              echo 'cd /etc/openvpn' >> openvpn_data/init_pki.sh && \
-              echo 'easyrsa init-pki' >> openvpn_data/init_pki.sh && \
-              echo \"echo 'vpn-secret-passphrase' | easyrsa --batch --passin=stdin build-ca nopass\" >> openvpn_data/init_pki.sh && \
-              echo '# Basics' >> openvpn_data/init_pki.sh && \
-              echo 'easyrsa --batch gen-dh' >> openvpn_data/init_pki.sh && \
-              echo 'openvpn --genkey --secret /etc/openvpn/pki/ta.key' >> openvpn_data/init_pki.sh && \
-              echo '# Clean up' >> openvpn_data/init_pki.sh && \
-              echo 'rm -f /etc/openvpn/pki_pass.txt' >> openvpn_data/init_pki.sh && \
-              chmod +x openvpn_data/init_pki.sh"; then
-              error "Failed to create PKI initialization script"
+          # Deploy files
+          rsync -avz --exclude=".git*" --exclude="tests/" ./ "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:$DEPLOYMENT_PATH/"
+
+          ssh -o StrictHostKeyChecking=no "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "
+            cd $DEPLOYMENT_PATH &&
+
+            # Initialize secrets
+            ./scripts/init-secrets.sh || true
+            echo '${{ secrets.OPENVPN_ADMIN_USERNAME }}' > secrets/admin_username.txt
+            echo '${{ secrets.OPENVPN_ADMIN_PASSWORD }}' > secrets/admin_password.txt
+            echo '${{ secrets.CA_PASSWORD }}' > secrets/ca_password.txt
+            chmod -R 600 secrets/
+
+            # Create environment file
+            cat > .env << 'EOF'
+          VPN_DOMAIN=${{ secrets.SERVER_HOST }}
+          OVPN_SERVER=10.20.0.0/24
+          OVPN_DNS=8.8.8.8,8.8.4.4
+          DEBUG=0
+          EOF
+
+            # Initialize OpenVPN if needed
+            if [[ ! -d openvpn_data/pki ]]; then
+              mkdir -p openvpn_data
+              docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn \
+                ovpn_genconfig -u udp://${{ secrets.SERVER_HOST }}:1194 -s 10.20.0.0/24
+              echo '${{ secrets.CA_PASSWORD }}' | docker run --rm -i \
+                -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn \
+                ovpn_initpki nopass
             fi
-            
-            log "Running non-interactive PKI initialization..."
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn bash /etc/openvpn/init_pki.sh && \
-              rm openvpn_data/init_pki.sh"; then
-              error "Failed to initialize OpenVPN PKI"
-            fi
-          else
-            log "OpenVPN PKI already initialized, skipping PKI initialization..."
-          fi
-          
-          # Verify and fix environment files
-          log "Verifying OpenVPN environment files..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            echo 'Checking for ovpn_env.sh...' && \
-            if [ ! -f openvpn_data/ovpn_env.sh ]; then \
-              echo 'Creating missing ovpn_env.sh...' && \
-              echo '=======================================================' && \
-              echo 'CRITICAL FIX: Creating environment file directly within Docker volume...' && \
-              echo '=======================================================' && \
-              sudo chmod -R 777 openvpn_data && \
-              echo 'export OVPN_AUTH=' > openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_CIPHER=AES-256-GCM' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_CLIENT_TO_CLIENT=1' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_CN=${SERVER_HOST}' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_COMP_LZO=0' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DEFROUTE=1' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DEVICE=tun' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DEVICEN=0' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DISABLE_PUSH_BLOCK_DNS=0' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DNS=1' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DNS_SERVERS=(\"8.8.8.8\" \"8.8.4.4\")' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_ENV=/etc/openvpn/ovpn_env.sh' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_EXTRA_CLIENT_CONFIG=()' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_EXTRA_SERVER_CONFIG=()' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_FRAGMENT=' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_MTU=' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_NAT=1' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_OTP_AUTH=' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_PORT=1194' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_PROTO=both' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_PUSH=()' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_ROUTES=([0]=\"10.20.0.0/24\")' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_SERVER=10.20.0.0/24' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_SERVER_URL=udp://${SERVER_HOST}:1194' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_SERVER_URL_TCP=tcp://${SERVER_HOST}:1195' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_TLS_VERSION_MIN=1.2' >> openvpn_data/ovpn_env.sh && \
-              echo 'export OVPN_DUPLICATE_CN=1' >> openvpn_data/ovpn_env.sh; \
-            else \
-              echo 'Existing ovpn_env.sh found'; \
-            fi && \
-            echo 'Ensuring openvpn.conf exists...' && \
-            if [ ! -f openvpn_data/openvpn.conf ]; then \
-              echo 'Re-running ovpn_genconfig...' && \
-              sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_genconfig \
-              -u udp://${SERVER_HOST}:1194 \
-              -u tcp://${SERVER_HOST}:1195 \
-              -s 10.20.0.0/24 \
-              -d \"8.8.8.8,8.8.4.4\" \
-              -p \"route 10.20.0.0 255.255.255.0\" \
-              -p \"route-gateway 10.20.0.1\" \
-              -p \"client-to-client\" \
-              -p \"duplicate-cn\" \
-              -p \"compress lz4-v2\"; \
-            fi && \
-            echo '=======================================================' && \
-            echo 'CRITICAL FIX: Creating environment file directly within Docker volume...' && \
-            echo '=======================================================' && \
-            sudo chmod -R 777 openvpn_data && \
-            echo 'export OVPN_AUTH=' > openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_CIPHER=AES-256-GCM' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_CLIENT_TO_CLIENT=1' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_CN=${SERVER_HOST}' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_COMP_LZO=0' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DEFROUTE=1' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DEVICE=tun' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DEVICEN=0' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DISABLE_PUSH_BLOCK_DNS=0' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DNS=1' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DNS_SERVERS=(\"8.8.8.8\" \"8.8.4.4\")' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_ENV=/etc/openvpn/ovpn_env.sh' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_EXTRA_CLIENT_CONFIG=()' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_EXTRA_SERVER_CONFIG=()' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_FRAGMENT=' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_MTU=' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_NAT=1' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_OTP_AUTH=' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_PORT=1194' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_PROTO=both' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_PUSH=()' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_ROUTES=([0]=\"10.20.0.0/24\")' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_SERVER=10.20.0.0/24' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_SERVER_URL=udp://${SERVER_HOST}:1194' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_SERVER_URL_TCP=tcp://${SERVER_HOST}:1195' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_TLS_CIPHER=TLS-ECDHE-RSA-WITH-AES-256-GCM-SHA384' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_TLS_VERSION_MIN=1.2' >> openvpn_data/ovpn_env.sh && \
-            echo 'export OVPN_DUPLICATE_CN=1' >> openvpn_data/ovpn_env.sh && \
-            sudo chmod 644 openvpn_data/ovpn_env.sh && \
-            echo 'Verifying environment file creation...' && \
-            ls -la openvpn_data/ovpn_env.sh && \
-            cat openvpn_data/ovpn_env.sh && \
-            echo '=======================================================' && \
-            echo 'SECONDARY VERIFICATION: Running direct container check...' && \
-            echo '=======================================================' && \
-            sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn --entrypoint /bin/sh kylemanna/openvpn -c '\
-              ls -la /etc/openvpn/ && \
-              echo \"CHECKING FOR ENV FILE:\" && \
-              if [ -f /etc/openvpn/ovpn_env.sh ]; then \
-                echo \"✅ Environment file exists inside container at /etc/openvpn/ovpn_env.sh\" && \
-                cat /etc/openvpn/ovpn_env.sh && \
-                echo \"File permissions: \$(ls -la /etc/openvpn/ovpn_env.sh)\"; \
-              else \
-                echo \"❌ ERROR: Environment file NOT FOUND in container\" && \
-                exit 1; \
-              fi'"; then
-            error "Failed to verify OpenVPN environment"
-          fi
-          
-          # Start services
-          log "Starting deployment..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            echo 'Stopping any running Docker containers...' && \
-            sudo docker ps -q | xargs -r sudo docker stop && \
-            echo 'Removing any existing containers...' && \
-            sudo docker ps -a -q | xargs -r sudo docker rm -f && \
-            echo 'Performing deep cleanup of Docker resources...' && \
-            sudo systemctl restart docker && \
-            sleep 5 && \
-            echo 'Debug: Checking network interfaces and ports...' && \
-            sudo netstat -tulpn | grep -E ':(1194|1195|8080|8081|3005|3006|3007|3008|3009)' || echo 'No ports in use' && \
-            echo 'Verifying ports are free...' && \
-            for port in 1194 1195 8080 8081 3005 3006 3007 3008 3009; do \
-              if sudo lsof -i :\$port -t 2>/dev/null; then \
-                echo \"Error: Port \$port is still in use\" && exit 1; \
-              else \
-                echo \"Port \$port is free\"; \
-              fi \
-            done && \
-            echo 'Setting up Docker environment with clean slate...' && \
-            sudo -E docker-compose pull && \
-            sudo -E docker network prune -f && \
-            echo 'Starting containers with modified network settings...' && \
-            sudo -E docker-compose up -d && \
-            echo 'Verifying OpenVPN configuration...' && \
-            sleep 5 && \
-            ls -la openvpn_data/ && \
-            cat openvpn_data/openvpn.conf 2>/dev/null || echo 'OpenVPN config file not found' && \
-            echo 'Checking OpenVPN container logs...' && \
-            docker logs openvpn-server"; then
-            error "Deployment failed"
-          fi
-          
-          log "Deployment completed successfully"
 
-  test:
-    name: Test Connection
+            # Zero-downtime deployment
+            docker-compose pull
+            docker-compose up -d --remove-orphans
+          "
+
+  verify:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
     needs: deploy
-    runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 5
     steps:
       - name: Setup SSH
-        env:
-          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-        run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Setup SSH
-          log "Setting up SSH..."
-          mkdir -p ~/.ssh || error "Failed to create SSH directory"
-          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa || error "Failed to write SSH key"
-          chmod 600 ~/.ssh/id_rsa || error "Failed to set SSH key permissions"
-          
-          # Get server's SSH key
-          log "Getting server's SSH key..."
-          if ! ssh-keyscan -t rsa -H "${SERVER_HOST}" > /tmp/known_hosts 2>/dev/null; then
-            error "Failed to get server's SSH key"
-          fi
-          cat /tmp/known_hosts > ~/.ssh/known_hosts || error "Failed to write known_hosts"
-          chmod 644 ~/.ssh/known_hosts || error "Failed to set known_hosts permissions"
+        uses: ./.github/actions/setup-ssh
 
-      - name: Test OpenVPN
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+      - name: Health check
         run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Test container status
-          log "Testing OpenVPN container status..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-server"; then
-            error "OpenVPN container is not running"
-          fi
-          
-          log "Testing admin panel container status..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-admin-panel"; then
-            error "OpenVPN admin panel container is not running"
-          fi
-          
-          log "Testing status page container status..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && docker ps | grep -q openvpn-status-page"; then
-            error "OpenVPN status page container is not running"
-          fi
-          
-          # Enhanced port checking
-          log "Gathering detailed service diagnostics..."
-          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            echo '--- Container status ---' && \
-            docker ps && \
-            echo '--- OpenVPN logs ---' && \
-            docker logs openvpn-server | tail -n 20 && \
-            echo '--- Network ports (netstat) ---' && \
-            sudo netstat -tulpn | grep -E '(openvpn|1194|1195|8080|8081)' || echo 'No matching ports found in netstat' && \
-            echo '--- Network ports (ss) ---' && \
-            sudo ss -tulpn | grep -E '(openvpn|1194|1195|8080|8081)' || echo 'No matching ports found in ss' && \
-            echo '--- UDP port check ---' && \
-            sudo netstat -lunp | grep 1194 || echo 'UDP port 1194 not detected by netstat'"
-          
-          # Test UDP port using proper tool for UDP
-          log "Testing OpenVPN UDP port (alternative method)..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            (sudo netstat -lunp | grep 1194 || sudo ss -ulpn | grep 1194)"; then
-            log "Warning: UDP port 1194 not detected by standard tools. This may be normal for UDP."
-            # Don't fail the workflow, as UDP ports may not show up in standard listening checks
-          else
-            log "UDP port 1194 is open"
-          fi
-          
-          # Test TCP ports
-          log "Testing OpenVPN TCP port..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            (sudo ss -tlpn | grep -E '(1194|1195)' || docker logs openvpn-server | grep -q 'Listening for incoming TCP connection')"; then
-            log "Warning: TCP port for OpenVPN not explicitly detected, checking container health..."
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-              docker ps | grep openvpn-server | grep -q 'Up'"; then
-              error "OpenVPN container is not healthy"
-            fi
-          else
-            log "OpenVPN TCP connectivity confirmed"
-          fi
-          
-          log "Testing admin panel port..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            sudo ss -tlpn | grep 8080"; then
-            error "Port 8080 is not open"
-          fi
-          
-          log "Testing status page port..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            sudo ss -tlpn | grep 8081"; then
-            error "Port 8081 is not open"
-          fi
-          
-          # Check forwarded ports
-          log "Testing forwarded ports..."
-          for port in {3005..3009}; do
-            if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-              sudo ss -tulpn | grep -q :$port"; then
-              log "Warning: Port $port may not be properly forwarded"
-            else
-              log "Port $port is correctly forwarded"
-            fi
-          done
-          
-          # Check OpenVPN logs
-          log "Checking OpenVPN logs..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            docker logs openvpn-server | tail -n 10 | grep -q -i 'initialization sequence completed'"; then
-            log "Warning: OpenVPN initialization message not found in logs"
-          else
-            log "OpenVPN initialization confirmed in logs"
-          fi
-          
-          log "All tests completed successfully"
+          ssh -o StrictHostKeyChecking=no "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "
+            cd $DEPLOYMENT_PATH &&
 
-  monitor:
-    name: Setup Monitoring
-    needs: test
+            # Wait for services to be ready
+            timeout=180
+            elapsed=0
+
+            while [[ \$elapsed -lt \$timeout ]]; do
+              if curl -f -s http://localhost:8080/health >/dev/null 2>&1; then
+                echo '✅ Deployment successful - all services healthy'
+
+                # Verify all containers
+                containers='openvpn-server openvpn-admin-panel openvpn-status-page'
+                for container in \$containers; do
+                  if docker ps | grep -q \$container; then
+                    echo '✓ Container \$container is running'
+                  fi
+                done
+
+                exit 0
+              fi
+              sleep 5
+              elapsed=\$((elapsed + 5))
+            done
+
+            echo '❌ Health check failed'
+            docker-compose logs --tail=20
+            exit 1
+          "
+
+  post-deploy:
+    name: Post-deployment Setup
     runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 5
+    needs: verify
+    if: success()
     steps:
       - name: Setup SSH
-        env:
-          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-        run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Setup SSH
-          log "Setting up SSH..."
-          mkdir -p ~/.ssh || error "Failed to create SSH directory"
-          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa || error "Failed to write SSH key"
-          chmod 600 ~/.ssh/id_rsa || error "Failed to set SSH key permissions"
-          
-          # Get server's SSH key
-          log "Getting server's SSH key..."
-          if ! ssh-keyscan -t rsa -H "${SERVER_HOST}" > /tmp/known_hosts 2>/dev/null; then
-            error "Failed to get server's SSH key"
-          fi
-          cat /tmp/known_hosts > ~/.ssh/known_hosts || error "Failed to write known_hosts"
-          chmod 644 ~/.ssh/known_hosts || error "Failed to set known_hosts permissions"
+        uses: ./.github/actions/setup-ssh
 
-      - name: Configure monitoring
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
+      - name: Configure monitoring and cleanup
         run: |
-          set -e
-          
-          function log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
-          }
-          
-          function error() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ERROR: $1" >&2
-            exit 1
-          }
-          
-          # Setup log directory
-          log "Setting up monitoring logs directory..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "sudo mkdir -p /var/log/openvpn && \
-            sudo chmod 755 /var/log/openvpn && \
-            sudo chown \$(whoami):\$(whoami) /var/log/openvpn"; then
-            error "Failed to set up logs directory"
-          fi
-          
-          # Create monitoring cron job
-          log "Setting up monitoring cron job..."
-          if ! ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            echo '*/10 * * * * cd /opt/openvpn && docker logs openvpn-server | tail -n 100 > /var/log/openvpn/openvpn.log 2>&1' > /tmp/openvpn_cron && \
-            echo '0 */6 * * * cd /opt/openvpn && docker ps | grep -q openvpn-server || (docker-compose up -d && echo \"Restarted OpenVPN container at \$(date)\" >> /var/log/openvpn/restart.log)' >> /tmp/openvpn_cron && \
-            sudo crontab -u \$(whoami) /tmp/openvpn_cron && \
-            rm /tmp/openvpn_cron"; then
-            error "Failed to set up monitoring cron job"
-          fi
-          
-          log "Monitoring configured successfully"
-          
-  client-management:
-    name: Client Certificate Management
-    runs-on: ubuntu-latest
-    environment: production
-    timeout-minutes: 5
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Setup SSH
-        env:
-          AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-        run: |
-          set -e
-          mkdir -p ~/.ssh
-          echo "${AZURE_SSH_KEY}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -t rsa -H "${SERVER_HOST}" > ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
+          ssh -o StrictHostKeyChecking=no "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" "
+            cd $DEPLOYMENT_PATH &&
 
-      - name: List client certificates
-        env:
-          SERVER_HOST: ${{ secrets.SERVER_HOST }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-        run: |
-          echo "Available client certificates:"
-          ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_HOST}" "cd /opt/openvpn && \
-            docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_listclients"
-            
-      - name: Instructions for client management
-        run: |
-          echo "To add a new client certificate, run the following command on the server:"
-          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn easyrsa build-client-full CLIENT_NAME nopass"
-          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_getclient CLIENT_NAME > CLIENT_NAME.ovpn"
-          echo
-          echo "To revoke a client certificate, run the following command on the server:"
-          echo "cd /opt/openvpn && sudo docker run --rm -v \$PWD/openvpn_data:/etc/openvpn kylemanna/openvpn ovpn_revokeclient CLIENT_NAME"
-          echo
-          echo "Note: You can also manage client certificates using the web admin panel at http://SERVER_HOST:8080"
+            # Setup monitoring cron job
+            (crontab -l 2>/dev/null | grep -v openvpn-monitor; echo '*/5 * * * * cd $DEPLOYMENT_PATH && docker-compose ps | grep -q healthy || docker-compose restart') | crontab -
+
+            # Cleanup old images
+            docker system prune -f --filter 'until=24h' || true
+
+            echo '🚀 Production deployment completed successfully!'
+            echo 'Services available at:'
+            echo '- Admin Panel: http://${{ secrets.SERVER_HOST }}:8080'
+            echo '- Status Page: http://${{ secrets.SERVER_HOST }}:8081'
+            echo '- Grafana: http://${{ secrets.SERVER_HOST }}:3000'
+            echo '- Prometheus: http://${{ secrets.SERVER_HOST }}:9090'
+          "

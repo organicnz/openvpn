@@ -1,17 +1,21 @@
 # Environment variables
 .env
 
-# Data directories
-mongodb_data/
-pritunl_data/
-pritunl_log/
+# OpenVPN data directories
+openvpn_data/
+prometheus_data/
+grafana_data/
+backups/
+secrets/
 
-# History and logs
+# Docker logs and temp files
 .history/
 *.log
 *.pid
 *.sock
 
-# OS files
+# OS and IDE files
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
